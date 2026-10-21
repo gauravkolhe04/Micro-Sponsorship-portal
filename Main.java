@@ -1,1190 +1,1091 @@
+// Source code is decompiled from a .class file using FernFlower decompiler (from Intellij IDEA).
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
-import java.io.*;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.BindException;
 import java.net.InetSocketAddress;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.net.http.HttpRequest.BodyPublishers;
+import java.net.http.HttpResponse.BodyHandlers;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
 import java.text.SimpleDateFormat;
-import java.util.*;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 
-/**
- * Micro-Sponsorship Portal for Student Projects - Java Backend
- * Built with standard Java HttpServer (no external frameworks or dependencies).
- */
 public class Main {
-    private static final int PORT = 8080;
+   private static final int PORT = 8080;
+   private static final long VERIFICATION_CODE_TTL_MILLIS = 600000L;
+   private static final long VERIFICATION_RESEND_COOLDOWN_MILLIS = 60000L;
+   private static final int MAX_VERIFICATION_ATTEMPTS = 5;
+   private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+   private static final HttpClient EMAIL_HTTP_CLIENT = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10L)).build();
+   static final List<Student> students = new ArrayList();
+   static final List<Sponsor> sponsors = new ArrayList();
+   static final List<Project> projects = new ArrayList();
+   static final List<Sponsorship> sponsorships = new ArrayList();
+   private static final Map<String, PendingRegistration> pendingRegistrations = new ConcurrentHashMap();
 
-    // In-memory data stores
-    static final List<Student> students = new ArrayList<>();
-    static final List<Sponsor> sponsors = new ArrayList<>();
-    static final List<Project> projects = new ArrayList<>();
-    static final List<Sponsorship> sponsorships = new ArrayList<>();
+   public Main() {
+   }
 
-    public static void main(String[] args) {
-        try {
-            // Seed initial mock data
-            seedData();
+   public static void main(String[] var0) {
+      try {
+         seedData();
+         HttpServer var1 = HttpServer.create(new InetSocketAddress(8080), 0);
+         var1.setExecutor(Executors.newCachedThreadPool());
+         var1.createContext("/", new StaticFileHandler());
+         var1.createContext("/projects", new ProjectsHandler());
+         var1.createContext("/createProject", new CreateProjectHandler());
+         var1.createContext("/updateProject", new UpdateProjectHandler());
+         var1.createContext("/deleteProject", new DeleteProjectHandler());
+         var1.createContext("/sponsor", new SponsorHandler());
+         var1.createContext("/addProjectUpdate", new AddUpdateHandler());
+         var1.createContext("/login", new LoginHandler());
+         var1.createContext("/register", new RegisterHandler());
+         var1.createContext("/verifyEmail", new VerifyEmailHandler());
+         var1.createContext("/resendVerification", new ResendVerificationHandler());
+         var1.createContext("/stats", new StatsHandler());
+         var1.createContext("/students", new StudentsHandler());
+         var1.createContext("/sponsors", new SponsorsHandler());
+         var1.start();
+         System.out.println("==================================================================");
+         System.out.println(" Micro-Sponsorship Portal for Student Projects Server Started");
+         System.out.println(" Local URL: http://localhost:8080");
+         System.out.println(" Status: In-memory database initialized with the portal account.");
+         System.out.println("==================================================================");
+      } catch (BindException var2) {
+         System.err.println("Cannot start the backend: port 8080 is already in use.");
+         System.err.println("Stop the other process using port 8080 or change PORT in Main.java.");
+      } catch (IOException var3) {
+         System.err.println("Cannot start the backend: " + var3.getMessage());
+         System.err.println("Run this command from the project folder: java Main.java");
+      }
 
-            // Create HTTP Server on port 8080
-            HttpServer server = HttpServer.create(new InetSocketAddress(PORT), 0);
-            server.setExecutor(Executors.newCachedThreadPool());
+   }
 
-            // Register API Handlers
-            server.createContext("/", new StaticFileHandler());
-            server.createContext("/projects", new ProjectsHandler());
-            server.createContext("/createProject", new CreateProjectHandler());
-            server.createContext("/updateProject", new UpdateProjectHandler());
-            server.createContext("/deleteProject", new DeleteProjectHandler());
-            server.createContext("/sponsor", new SponsorHandler());
-            server.createContext("/addProjectUpdate", new AddUpdateHandler());
-            server.createContext("/login", new LoginHandler());
-            server.createContext("/register", new RegisterHandler());
-            server.createContext("/stats", new StatsHandler());
-            server.createContext("/students", new StudentsHandler());
-            server.createContext("/sponsors", new SponsorsHandler());
+   private static void seedData() {
+      students.add(new Student("STU-101", "Gaurav Kolhe", "gau@gmail.com", "Gau", "RCPIT", "Information Technology", "2nd Year", "Java, Html, CSS", ""));
+      String var0 = (new SimpleDateFormat("yyyy-MM-dd")).format(new Date());
+      addSeedProject("PRJ-101", "Smart Campus AI Copilot", "AI & Machine Learning", "A conversational campus assistant that helps students discover events, timetable slots, and career guidance using AI-powered recommendations.", (double)1250.0F, (double)1485.0F, "Python, TensorFlow, NLP, React", "8 weeks", "3 students", "https://images.unsplash.com/photo-1531482615713-2afd69097998?auto=format&fit=crop&w=800&q=80", "https://github.com", "https://demo.example.com", "STU-101", "Gaurav Kolhe", "gau@gmail.com", var0, "Funded");
+      addSeedProject("PRJ-102", "Vision-Based Attendance System", "AI & Machine Learning", "Face recognition and attendance automation system for classrooms with privacy-safe processing, attendance dashboards, and anomaly detection.", (double)1800.0F, (double)1200.0F, "OpenCV, Python, Flask, Edge AI", "10 weeks", "4 students", "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=800&q=80", "https://github.com", "https://demo.example.com", "STU-102", "Aisha Shah", "aisha@college.edu", var0, "Active");
+      addSeedProject("PRJ-103", "CareerFit Predictor", "AI & Machine Learning", "An ML application that matches candidate skill profiles to internships, roles, and future career pathways using explainable recommendations.", (double)2100.0F, (double)1450.0F, "Python, Scikit-Learn, SQL, Analytics", "12 weeks", "3 students", "https://images.unsplash.com/photo-1552664730-d307ca884978?auto=format&fit=crop&w=800&q=80", "https://github.com", "https://demo.example.com", "STU-103", "Kabir Nair", "kabir@college.edu", var0, "Active");
+      addSeedProject("PRJ-104", "Autonomous Maze Rover", "IoT & Robotics", "A small autonomous rover that navigates obstacle maps using sensors, path-planning algorithms, and live telemetry for smart campus automation.", (double)2600.0F, (double)1750.0F, "C++, ROS, Sensor Fusion, Embedded Systems", "9 weeks", "4 students", "https://images.unsplash.com/photo-1581092921461-eab62e97a780?auto=format&fit=crop&w=800&q=80", "https://github.com", "https://demo.example.com", "STU-104", "Rohan Mehta", "rohan@college.edu", var0, "Active");
+      addSeedProject("PRJ-105", "Smart Greenhouse Monitor", "IoT & Robotics", "A smart greenhouse sensor network for moisture, temperature, and nutrient monitoring to optimize irrigation and crop productivity.", (double)1500.0F, (double)1380.0F, "IoT, ESP32, MQTT, Data Logging", "7 weeks", "2 students", "https://images.unsplash.com/photo-1466692476868-aef1dfb1e735?auto=format&fit=crop&w=800&q=80", "https://github.com", "https://demo.example.com", "STU-105", "Sneha Kulkarni", "sneha@college.edu", var0, "Active");
+      addSeedProject("PRJ-106", "Warehouse Bot Fleet", "IoT & Robotics", "A coordinated robotic arm and line-following bot system for indoor inventory routing and material handling in small warehouses.", (double)3400.0F, (double)2200.0F, "Embedded C, Robotics, Automation, CAD", "12 weeks", "5 students", "https://images.unsplash.com/photo-1560251183-3b53f0d59cdb?auto=format&fit=crop&w=800&q=80", "https://github.com", "https://demo.example.com", "STU-106", "Nitin Joshi", "nitin@college.edu", var0, "Active");
+      addSeedProject("PRJ-107", "Solar Charge Optimizer", "GreenTech & Energy", "A solar tracking and charge optimization node that increases battery efficiency using weather-aware routing and load balancing.", (double)2600.0F, (double)2900.0F, "Solar Tech, Electronics, Power Systems, MATLAB", "10 weeks", "3 students", "https://images.unsplash.com/photo-1497435334941-8c899ee9e8e9?auto=format&fit=crop&w=800&q=80", "https://github.com", "https://demo.example.com", "STU-107", "Prachi Verma", "prachi@college.edu", var0, "Funded");
+      addSeedProject("PRJ-108", "Rainwater Harvesting Sensor Grid", "GreenTech & Energy", "A community water monitoring network to track rainwater storage, leak detection, and predictive maintenance for urban sustainability.", (double)2400.0F, (double)1600.0F, "Sensors, GIS, IoT, Data Analysis", "8 weeks", "3 students", "https://images.unsplash.com/photo-1473448912268-2022ce9509d8?auto=format&fit=crop&w=800&q=80", "https://github.com", "https://demo.example.com", "STU-108", "Vikram Patil", "vikram@college.edu", var0, "Active");
+      addSeedProject("PRJ-109", "Remote Patient Monitor", "HealthTech & Blockchain", "A secure patient monitoring dashboard that logs biomarkers and medical updates with consent-based blockchain verification for hospitals.", (double)3200.0F, (double)2850.0F, "Healthcare IoT, Blockchain, Security, Full Stack", "11 weeks", "4 students", "https://images.unsplash.com/photo-1576091160550-2173dba999ef?auto=format&fit=crop&w=800&q=80", "https://github.com", "https://demo.example.com", "STU-109", "Tanvi Rao", "tanvi@college.edu", var0, "Active");
+      addSeedProject("PRJ-110", "Medical Record Tracechain", "HealthTech & Blockchain", "A tamper-resistant healthcare data sharing app for students and clinics that tracks record access while protecting patient privacy.", (double)2700.0F, (double)1600.0F, "Blockchain, Java, Security, UI/UX", "10 weeks", "2 students", "https://images.unsplash.com/photo-1538108149393-fbbd81895973?auto=format&fit=crop&w=800&q=80", "https://github.com", "https://demo.example.com", "STU-110", "Yash Sutar", "yash@college.edu", var0, "Active");
+      addSeedProject("PRJ-111", "Immersive Lab Simulator", "AR/VR & Design", "A virtual engineering lab walkthrough for students to practice equipment handling, machine operations, and safety procedures in 3D.", (double)2000.0F, (double)1600.0F, "Unity, Blender, C#, 3D Design", "9 weeks", "3 students", "https://images.unsplash.com/photo-1526379095098-d400fd0bf935?auto=format&fit=crop&w=800&q=80", "https://github.com", "https://demo.example.com", "STU-111", "Mehul Jain", "mehul@college.edu", var0, "Active");
+      addSeedProject("PRJ-112", "AR Assembly Guide", "AR/VR & Design", "An augmented reality guide that overlays assembly steps on live machine parts so students can learn manufacturing workflows faster.", (double)1700.0F, (double)1450.0F, "ARCore, Unity, CAD, UX Design", "8 weeks", "2 students", "https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=800&q=80", "https://github.com", "https://demo.example.com", "STU-112", "Ananya Solanki", "ananya@college.edu", var0, "Active");
+   }
 
-            server.start();
-            System.out.println("==================================================================");
-            System.out.println(" Micro-Sponsorship Portal for Student Projects Server Started");
-            System.out.println(" Local URL: http://localhost:" + PORT);
-            System.out.println(" Status: In-memory database initialized with sample projects.");
-            System.out.println("==================================================================");
-        } catch (BindException e) {
-            System.err.println("Cannot start the backend: port " + PORT + " is already in use.");
-            System.err.println("Stop the other process using port " + PORT + " or change PORT in Main.java.");
-        } catch (IOException e) {
-            System.err.println("Cannot start the backend: " + e.getMessage());
-            System.err.println("Run this command from the project folder: java Main.java");
-        }
-    }
+   private static void addSeedProject(String var0, String var1, String var2, String var3, double var4, double var6, String var8, String var9, String var10, String var11, String var12, String var13, String var14, String var15, String var16, String var17, String var18) {
+      Project var19 = new Project(var0, var1, var2, var3, var4, var6, var8, var9, var10, var11, var12, var13, var14, var15, var16, var17, var18);
+      var19.getUpdates().add(new ProjectUpdate("UPD-" + System.currentTimeMillis() + "-" + var0, var0, "Project Launch", "Initial prototype and project goals are now visible to the student community.", var17));
+      projects.add(var19);
+   }
 
-    // ==========================================
-    // Seed Sample Data
-    // ==========================================
-    private static void seedData() {
-        // Sample Students
-        Student s1 = new Student("STU-101", "Gaurav Kolhe", "gau@gmail.com", "Gau", "RCPIT", "Information Technology", "2nd Year", "Java, Html, CSS ", "passionate about learning new technologies and building projects that make a difference in the world.");
-        
+   private static void setCORSHeaders(HttpExchange var0) {
+      var0.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+      var0.getResponseHeaders().set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE");
+      var0.getResponseHeaders().set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
+   }
 
-        students.add(s1);
+   private static synchronized boolean accountExists(String var0) {
+      for(Student var2 : students) {
+         if (var2.getEmail().equalsIgnoreCase(var0)) {
+            return true;
+         }
+      }
 
-        String[] studentNames = {
-            "Elena Rostova", "Priya Nair", "Marcus Chen", "Aisha Khan", "Noah Williams",
-            "Sofia Martinez", "Rohan Mehta", "Maya Patel", "Daniel Kim", "Anika Shah"
-        };
-        for (int i = 2; i <= 50; i++) {
-            String name = studentNames[(i - 2) % studentNames.length] + " " + i;
-            students.add(new Student(
-                "STU-" + (99 + i), name, "student" + i + "@college.edu", "student123",
-                "National College of Engineering", "Computer Science", ((i % 4) + 1) + " Year",
-                "Java, Python, Web Development", "College student building practical technology projects."
-            ));
-        }
-        
+      for(Sponsor var4 : sponsors) {
+         if (var4.getEmail().equalsIgnoreCase(var0)) {
+            return true;
+         }
+      }
 
-        // Sample Sponsors
-        Sponsor sp1 = new Sponsor("SPO-201", "Apex Venture Labs", "sponsorships@apexventures.io", "password123", "Corporate", "Apex Ventures", "Supporting breakthrough student engineering initiatives and deep-tech prototypes.");
-        Sponsor sp2 = new Sponsor("SPO-202", "Dr. Robert Vance", "robert.vance@alumni.org", "password123", "Alumni", "Vance Tech Advisory", "Alumni mentor giving back to empower next-generation engineers and makers.");
-        Sponsor sp3 = new Sponsor("SPO-203", "Green Earth Foundation", "grants@greenearth.org", "password123", "Individual", "Eco Grants Network", "Micro-grant provider for clean-tech and sustainability student capstones.");
+      return false;
+   }
 
-        sponsors.add(sp1);
-        sponsors.add(sp2);
-        sponsors.add(sp3);
+   private static synchronized String createRegisteredAccount(Map<String, String> var0) {
+      String var1 = ((String)var0.getOrDefault("role", "student")).trim().toLowerCase();
+      String var2 = ((String)var0.getOrDefault("name", "")).trim();
+      String var3 = ((String)var0.getOrDefault("email", "")).trim().toLowerCase();
+      String var4 = ((String)var0.getOrDefault("password", "")).trim();
+      if (accountExists(var3)) {
+         throw new IllegalArgumentException("Account already exists");
+      } else if ("sponsor".equals(var1)) {
+         String var12 = (String)var0.getOrDefault("type", "Individual");
+         String var13 = (String)var0.getOrDefault("company", var2);
+         String var14 = (String)var0.getOrDefault("bio", "Passionate supporter of youth technology projects.");
+         int var17 = sponsors.size();
+         String var15 = "SPO-" + (var17 + 201);
+         Sponsor var16 = new Sponsor(var15, var2, var3, var4, var12, var13, var14);
+         sponsors.add(var16);
+         return "{\"success\":true,\"role\":\"sponsor\",\"user\":" + var16.toJson() + ",\"message\":\"Email verified. Sponsor account created successfully.\"}";
+      } else {
+         String var5 = (String)var0.getOrDefault("university", "Engineering Institute");
+         String var6 = (String)var0.getOrDefault("department", "Computer Engineering");
+         String var7 = (String)var0.getOrDefault("year", "3rd Year");
+         String var8 = (String)var0.getOrDefault("skills", "Software, Hardware");
+         String var9 = (String)var0.getOrDefault("bio", "Aspiring engineer and project creator.");
+         int var10000 = students.size();
+         String var10 = "STU-" + (var10000 + 101);
+         Student var11 = new Student(var10, var2, var3, var4, var5, var6, var7, var8, var9);
+         students.add(var11);
+         return "{\"success\":true,\"role\":\"student\",\"user\":" + var11.toJson() + ",\"message\":\"Email verified. Student account created successfully.\"}";
+      }
+   }
 
-        String[] sponsorNames = {
-            "Campus Innovation Fund", "BrightPath Alumni", "Nova Small Grants", "TechBridge Community",
-            "Future Makers Club", "Local Impact Partners", "Open Learning Foundation"
-        };
-        for (int i = 0; i < sponsorNames.length; i++) {
-            sponsors.add(new Sponsor(
-                "SPO-" + (204 + i), sponsorNames[i], "sponsor" + (i + 4) + "@example.org", "sponsor123",
-                i % 2 == 0 ? "Alumni" : "Community", sponsorNames[i],
-                "Supporting affordable student innovation and practical college projects."
-            ));
-        }
+   private static String createVerificationCode() {
+      return String.format(Locale.ROOT, "%06d", SECURE_RANDOM.nextInt(1000000));
+   }
 
-        Project drone = new Project(
-            "PRJ-002", "SkyRescue: Autonomous Disaster Supply Drone", "IoT & Robotics",
-            "A multi-rotor autonomous UAV engineered for rapid emergency payload delivery in disaster zones where roads are blocked.",
-                200, 200, "ROS 2, PX4 Autopilot, C++, Computer Vision", "6 Months",
-            "Elena Rostova (Flight Lead), Mateo Silva (Avionics)",
-            "https://images.unsplash.com/photo-1508614589041-895b88991e3e?auto=format&fit=crop&w=800&q=80",
-            "https://github.com/student-projects/skyrescue-uav-autonomy", "https://skyrescue-telemetry.demo.app",
-            "STU-102", "Elena Rostova", "elena@stanford.edu", "2026-06-15", "Funded"
-        );
-        drone.getUpdates().add(new ProjectUpdate("UPD-3", "PRJ-002", "Waypoint Flight Test Passed", "Autonomous 5km flight with 1.2kg payload succeeded.", "2026-07-12"));
-        drone.getUpdates().add(new ProjectUpdate("UPD-4", "PRJ-002", "Fully Funded Milestone Reached", "Thanks to Apex Venture Labs and alumni donors!", "2026-08-02"));
-        projects.add(drone);
+   private static byte[] hashVerificationCode(String var0) {
+      try {
+         return MessageDigest.getInstance("SHA-256").digest(var0.getBytes(StandardCharsets.UTF_8));
+      } catch (NoSuchAlgorithmException var2) {
+         throw new IllegalStateException("SHA-256 is not available.", var2);
+      }
+   }
 
-        Project solar = new Project(
-            "PRJ-003", "SunShare: Peer-to-Peer Solar Microgrid Node", "GreenTech & Energy",
-            "An open-source IoT hardware controller that lets rural homes with rooftop solar panels share excess clean energy with automated micro-billing.",
-                150, 92, "ESP32, C++, MQTT, React Dashboard, Power Electronics", "5 Months",
-            "Priya Nair (Lead), Arjun Patel (Firmware)",
-            "https://images.unsplash.com/photo-1509391365360-2e959784a276?auto=format&fit=crop&w=800&q=80",
-            "https://github.com/student-projects/sunshare-microgrid", "https://sunshare-energy.demo.app",
-            "STU-103", "Priya Nair", "priya@iitb.ac.in", "2026-07-20", "Active"
-        );
-        solar.getUpdates().add(new ProjectUpdate("UPD-5", "PRJ-003", "Inverter Interface Built", "Built opto-isolated relay interface connecting solar controller.", "2026-08-18"));
-        projects.add(solar);
+   private static void sendVerificationEmail(String var0, String var1) throws IOException {
+      String var2 = System.getenv("RESEND_API_KEY");
+      String var3 = System.getenv("EMAIL_FROM");
+      if (var2 != null && !var2.isBlank() && var3 != null && !var3.isBlank()) {
+         String var4 = "<p>Your StudentFund verification code is:</p><p><strong>" + var1 + "</strong></p><p>This code expires in 10 minutes.</p>";
+         String var10000 = escapeJson(var3);
+         String var5 = "{\"from\":\"" + var10000 + "\",\"to\":[\"" + escapeJson(var0) + "\"],\"subject\":\"Verify your StudentFund email\",\"html\":\"" + escapeJson(var4) + "\"}";
+         HttpRequest var6 = HttpRequest.newBuilder(URI.create("https://api.resend.com/emails")).timeout(Duration.ofSeconds(20L)).header("Authorization", "Bearer " + var2).header("Content-Type", "application/json").POST(BodyPublishers.ofString(var5, StandardCharsets.UTF_8)).build();
 
-        Project health = new Project(
-            "PRJ-004", "MediVault: Zero-Knowledge Health Record Pass", "HealthTech & Blockchain",
-            "Decentralized electronic medical records system using Zero-Knowledge proofs. Patients maintain absolute ownership of diagnostic records.",
-                180, 65, "Next.js, Solidity, IPFS, Circom, Web Crypto API", "3 Months",
-            "Marcus Chen (ZK Lead), Dr. Ananya Sen",
-            "https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?auto=format&fit=crop&w=800&q=80",
-            "https://github.com/student-projects/medivault-zk-records", "https://medivault.demo.app",
-            "STU-104", "Marcus Chen", "marcus@berkeley.edu", "2026-08-01", "Active"
-        );
-        health.getUpdates().add(new ProjectUpdate("UPD-6", "PRJ-004", "ZK-SNARK Circuit Test", "Validated zero-knowledge verification on local testnet.", "2026-08-20"));
-        projects.add(health);
+         try {
+            HttpResponse var7 = EMAIL_HTTP_CLIENT.send(var6, BodyHandlers.ofString());
+            if (var7.statusCode() < 200 || var7.statusCode() >= 300) {
+               throw new IOException("Resend returned HTTP " + var7.statusCode() + ".");
+            }
+         } catch (InterruptedException var8) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Email delivery was interrupted.", var8);
+         }
+      } else {
+         throw new IllegalStateException("Set RESEND_API_KEY and EMAIL_FROM on the backend.");
+      }
+   }
 
-        String[] titles = {
-            "FreshTrack: Smart Food Storage Monitor", "StudyBuddy: Peer Learning Planner",
-            "CleanRoute: Campus Waste Tracker", "SafeWalk: Student Commute Alert",
-            "AquaSense: Low-Cost Water Quality Kit", "SignSpark: Gesture Learning Tool",
-            "FarmLink: Student Grower Marketplace", "Mindful Minutes: Wellness Check-In",
-            "BuildBox: Modular 3D Printing Lab"
-        };
-        String[] categories = {
-            "AgriTech", "EdTech", "Sustainability", "CivicTech", "Environment",
-            "Accessibility", "Social Impact", "Wellness", "Hardware & Manufacturing"
-        };
-        String[] descriptions = {
-            "A low-cost sensor that helps students and small kitchens reduce food waste by monitoring storage conditions.",
-            "A simple campus planner that matches students for focused peer study sessions and shared revision goals.",
-            "A campus dashboard that maps waste collection points and rewards better recycling habits.",
-            "A privacy-friendly mobile alert system for safer evening commutes between campus locations.",
-            "An affordable test kit that helps student communities monitor water quality in local sources.",
-            "An interactive learning tool that turns common hand gestures into accessible study prompts.",
-            "A marketplace connecting student growers with nearby buyers for affordable fresh produce.",
-            "A lightweight daily check-in that helps college students notice stress patterns and find support resources.",
-            "A shared design library and booking system for student teams using campus 3D printers."
-        };
-        String[] skills = {
-            "Arduino, Sensors, JavaScript", "React, Firebase, UX Design", "Python, Maps API, Data Visualization",
-            "Flutter, Notifications, Security", "Arduino, Chemistry, Embedded C", "Python, TensorFlow Lite, UX",
-            "Node.js, SQL, Payments", "React Native, SQLite, Accessibility", "CAD, 3D Printing, Web Apps"
-        };
-        int[] goals = {120, 180, 150, 220, 100, 175, 130, 200, 160};
-        int[] raised = {45, 70, 80, 55, 30, 90, 40, 65, 25};
-        String[] images = {
-            "https://images.unsplash.com/photo-1498837167922-ddd27525d352?auto=format&fit=crop&w=800&q=80",
-            "https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=800&q=80",
-            "https://images.unsplash.com/photo-1532996122724-e3c354a0b15b?auto=format&fit=crop&w=800&q=80",
-            "https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?auto=format&fit=crop&w=800&q=80",
-            "https://images.unsplash.com/photo-1538108149393-fbbd81895907?auto=format&fit=crop&w=800&q=80",
-            "https://images.unsplash.com/photo-1559757175-0eb30cd8c063?auto=format&fit=crop&w=800&q=80",
-            "https://images.unsplash.com/photo-1490219556762-6b567b54dfb9?auto=format&fit=crop&w=800&q=80",
-            "https://images.unsplash.com/photo-1506126613408-eca07ce68773?auto=format&fit=crop&w=800&q=80",
-            "https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&w=800&q=80"
-        };
-        for (int i = 0; i < titles.length; i++) {
-            int projectNumber = 5 + i;
-            int studentNumber = 105 + i;
-            projects.add(new Project(
-                "PRJ-" + String.format("%03d", projectNumber), titles[i], categories[i], descriptions[i],
-                goals[i], raised[i], skills[i], "3 Months", "Student team " + studentNumber,
-                images[i], "https://github.com/student-projects/project-" + projectNumber,
-                "https://project-" + projectNumber + ".demo.app", "STU-" + studentNumber,
-                "Student " + studentNumber, "student" + studentNumber + "@college.edu", "2026-09-01", "Active"
-            ));
-        }
-    }
+   private static void sendResponse(HttpExchange var0, int var1, String var2) throws IOException {
+      sendResponse(var0, var1, var2, "application/json; charset=UTF-8");
+   }
 
-    // ==========================================
-    // HTTP Handlers
-    // ==========================================
+   private static void sendResponse(HttpExchange var0, int var1, String var2, String var3) throws IOException {
+      byte[] var4 = var2.getBytes(StandardCharsets.UTF_8);
+      var0.getResponseHeaders().set("Content-Type", var3);
+      var0.sendResponseHeaders(var1, (long)var4.length);
+      OutputStream var5 = var0.getResponseBody();
 
-    /**
-     * Serves index.html for root and static paths
-     */
-    static class StaticFileHandler implements HttpHandler {
-        @Override
-        public void handle(HttpExchange exchange) throws IOException {
-            setCORSHeaders(exchange);
-            if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
-                sendResponse(exchange, 204, "");
-                return;
+      try {
+         var5.write(var4);
+      } catch (Throwable var9) {
+         if (var5 != null) {
+            try {
+               var5.close();
+            } catch (Throwable var8) {
+               var9.addSuppressed(var8);
+            }
+         }
+
+         throw var9;
+      }
+
+      if (var5 != null) {
+         var5.close();
+      }
+
+   }
+
+   private static String readRequestBody(HttpExchange var0) throws IOException {
+      InputStream var1 = var0.getRequestBody();
+
+      String var5;
+      try {
+         ByteArrayOutputStream var2 = new ByteArrayOutputStream();
+
+         try {
+            byte[] var3 = new byte[1024];
+
+            int var4;
+            while((var4 = var1.read(var3)) != -1) {
+               var2.write(var3, 0, var4);
             }
 
-            String path = exchange.getRequestURI().getPath();
-            if (path == null || path.equals("/") || path.equals("/index.html")) {
-                File file = new File(System.getProperty("user.dir"), "index.html");
-                if (file.exists() && file.isFile()) {
-                    byte[] bytes = Files.readAllBytes(file.toPath());
-                    exchange.getResponseHeaders().set("Content-Type", "text/html; charset=UTF-8");
-                    exchange.sendResponseHeaders(200, bytes.length);
-                    try (OutputStream os = exchange.getResponseBody()) {
-                        os.write(bytes);
-                    }
-                } else {
-                    String fallback = "<html><body><h1>Micro-Sponsorship Portal</h1><p>index.html was not found in current directory.</p></body></html>";
-                    sendResponse(exchange, 200, fallback, "text/html; charset=UTF-8");
-                    return;
-                }
+            var5 = var2.toString(StandardCharsets.UTF_8.name());
+         } catch (Throwable var8) {
+            try {
+               var2.close();
+            } catch (Throwable var7) {
+               var8.addSuppressed(var7);
             }
-            sendResponse(exchange, 404, "{\"error\":\"Not Found\"}");
-        }
-    }
-    /**
-     * GET /projects: Returns all projects in JSON format
-     */
-    static class ProjectsHandler implements HttpHandler {
-        @Override
-        public void handle(HttpExchange exchange) throws IOException {
-            setCORSHeaders(exchange);
-            if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
-                sendResponse(exchange, 204, "");
-                return;
+
+            throw var8;
+         }
+
+         var2.close();
+      } catch (Throwable var9) {
+         if (var1 != null) {
+            try {
+               var1.close();
+            } catch (Throwable var6) {
+               var9.addSuppressed(var6);
             }
-            if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
-                StringBuilder sb = new StringBuilder("[");
-                for (int i = 0; i < projects.size(); i++) {
-                    sb.append(projects.get(i).toJson());
-                    if (i < projects.size() - 1) sb.append(",");
-                }
-                sb.append("]");
-                sendResponse(exchange, 200, sb.toString());
+         }
+
+         throw var9;
+      }
+
+      if (var1 != null) {
+         var1.close();
+      }
+
+      return var5;
+   }
+
+   private static double parseDouble(String var0, double var1) {
+      if (var0 != null && !var0.trim().isEmpty()) {
+         try {
+            return Double.parseDouble(var0.trim().replace("$", "").replace(",", ""));
+         } catch (NumberFormatException var4) {
+            return var1;
+         }
+      } else {
+         return var1;
+      }
+   }
+
+   public static String escapeJson(String var0) {
+      if (var0 == null) {
+         return "";
+      } else {
+         StringBuilder var1 = new StringBuilder();
+
+         for(int var2 = 0; var2 < var0.length(); ++var2) {
+            char var3 = var0.charAt(var2);
+            switch (var3) {
+               case '\b':
+                  var1.append("\\b");
+                  break;
+               case '\t':
+                  var1.append("\\t");
+                  break;
+               case '\n':
+                  var1.append("\\n");
+                  break;
+               case '\f':
+                  var1.append("\\f");
+                  break;
+               case '\r':
+                  var1.append("\\r");
+                  break;
+               case '"':
+                  var1.append("\\\"");
+                  break;
+               case '\\':
+                  var1.append("\\\\");
+                  break;
+               default:
+                  if (var3 < ' ') {
+                     String var4 = String.format("\\u%04x", Integer.valueOf(var3));
+                     var1.append(var4);
+                  } else {
+                     var1.append(var3);
+                  }
+            }
+         }
+
+         return var1.toString();
+      }
+   }
+
+   public static Map<String, String> parseJsonSimple(String var0) {
+      HashMap var1 = new HashMap();
+      if (var0 != null && !var0.trim().isEmpty()) {
+         String var2 = var0.trim();
+         if (var2.startsWith("{")) {
+            var2 = var2.substring(1);
+         }
+
+         if (var2.endsWith("}")) {
+            var2 = var2.substring(0, var2.length() - 1);
+         }
+
+         boolean var3 = false;
+         boolean var4 = false;
+         StringBuilder var5 = new StringBuilder();
+         ArrayList var6 = new ArrayList();
+
+         for(int var7 = 0; var7 < var2.length(); ++var7) {
+            char var8 = var2.charAt(var7);
+            if (var4) {
+               var5.append(var8);
+               var4 = false;
+            } else if (var8 == '\\') {
+               var4 = true;
+            } else if (var8 == '"') {
+               var3 = !var3;
+            } else if (var8 == ',' && !var3) {
+               var6.add(var5.toString().trim());
+               var5.setLength(0);
             } else {
-                sendResponse(exchange, 405, "{\"error\":\"Method Not Allowed\"}");
+               var5.append(var8);
             }
-        }
-    }
+         }
 
-    /**
-     * POST /createProject: Creates a new student project
-     */
-    static class CreateProjectHandler implements HttpHandler {
-        @Override
-        public void handle(HttpExchange exchange) throws IOException {
-            setCORSHeaders(exchange);
-            if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
-                sendResponse(exchange, 204, "");
-                return;
+         if (var5.length() > 0) {
+            var6.add(var5.toString().trim());
+         }
+
+         for(String var13 : var6) {
+            int var9 = var13.indexOf(58);
+            if (var9 != -1) {
+               String var10 = var13.substring(0, var9).trim().replaceAll("^\"|\"$", "");
+               String var11 = var13.substring(var9 + 1).trim().replaceAll("^\"|\"$", "");
+               var1.put(var10, var11);
             }
-            if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
-                sendResponse(exchange, 405, "{\"error\":\"Method Not Allowed\"}");
-                return;
+         }
+
+         return var1;
+      } else {
+         return var1;
+      }
+   }
+
+   static class StaticFileHandler implements HttpHandler {
+      StaticFileHandler() {
+      }
+
+      public void handle(HttpExchange var1) throws IOException {
+         Main.setCORSHeaders(var1);
+         if ("OPTIONS".equalsIgnoreCase(var1.getRequestMethod())) {
+            Main.sendResponse(var1, 204, "");
+         } else {
+            String var2 = var1.getRequestURI().getPath();
+            if (var2 == null || var2.equals("/") || var2.equals("/index.html")) {
+               File var3 = new File(System.getProperty("user.dir"), "index.html");
+               if (!var3.exists() || !var3.isFile()) {
+                  String var10 = "<html><body><h1>Micro-Sponsorship Portal</h1><p>index.html was not found in current directory.</p></body></html>";
+                  Main.sendResponse(var1, 200, var10, "text/html; charset=UTF-8");
+                  return;
+               }
+
+               byte[] var4 = Files.readAllBytes(var3.toPath());
+               var1.getResponseHeaders().set("Content-Type", "text/html; charset=UTF-8");
+               var1.sendResponseHeaders(200, (long)var4.length);
+               OutputStream var5 = var1.getResponseBody();
+
+               try {
+                  var5.write(var4);
+               } catch (Throwable var9) {
+                  if (var5 != null) {
+                     try {
+                        var5.close();
+                     } catch (Throwable var8) {
+                        var9.addSuppressed(var8);
+                     }
+                  }
+
+                  throw var9;
+               }
+
+               if (var5 != null) {
+                  var5.close();
+               }
             }
-            if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-                String body = readRequestBody(exchange);
-                Map<String, String> data = parseJsonSimple(body);
 
-                String title = data.getOrDefault("title", "").trim();
-                String category = data.getOrDefault("category", "General").trim();
-                String description = data.getOrDefault("description", "").trim();
-                double fundingGoal = parseDouble(data.get("fundingGoal"), 0.0);
-                String requiredSkills = data.getOrDefault("requiredSkills", "").trim();
-                String duration = data.getOrDefault("duration", "").trim();
-                String teamMembers = data.getOrDefault("teamMembers", "").trim();
-                String imageUrl = data.getOrDefault("imageUrl", "").trim();
-                String githubUrl = data.getOrDefault("githubUrl", "").trim();
-                String demoUrl = data.getOrDefault("demoUrl", "").trim();
-                String studentId = data.getOrDefault("studentId", "STU-" + (students.size() + 100)).trim();
-                String studentName = data.getOrDefault("studentName", "Student Innovator").trim();
-                String studentEmail = data.getOrDefault("studentEmail", "").trim();
+            Main.sendResponse(var1, 404, "{\"error\":\"Not Found\"}");
+         }
+      }
+   }
 
-                // Validation
-                if (title.isEmpty() || description.isEmpty() || fundingGoal <= 0) {
-                    sendResponse(exchange, 400, "{\"success\":false,\"message\":\"Title, description, and positive funding goal are required.\"}");
-                    return;
-                }
+   static class ProjectsHandler implements HttpHandler {
+      ProjectsHandler() {
+      }
 
-                // Check for duplicate project name
-                for (Project p : projects) {
-                    if (p.getTitle().equalsIgnoreCase(title)) {
-                        sendResponse(exchange, 400, "{\"success\":false,\"message\":\"A project with this title already exists. Please choose a unique name.\"}");
+      public void handle(HttpExchange var1) throws IOException {
+         Main.setCORSHeaders(var1);
+         if ("OPTIONS".equalsIgnoreCase(var1.getRequestMethod())) {
+            Main.sendResponse(var1, 204, "");
+         } else {
+            if ("GET".equalsIgnoreCase(var1.getRequestMethod())) {
+               StringBuilder var2 = new StringBuilder("[");
+
+               for(int var3 = 0; var3 < Main.projects.size(); ++var3) {
+                  var2.append(((Project)Main.projects.get(var3)).toJson());
+                  if (var3 < Main.projects.size() - 1) {
+                     var2.append(",");
+                  }
+               }
+
+               var2.append("]");
+               Main.sendResponse(var1, 200, var2.toString());
+            } else {
+               Main.sendResponse(var1, 405, "{\"error\":\"Method Not Allowed\"}");
+            }
+
+         }
+      }
+   }
+
+   static class CreateProjectHandler implements HttpHandler {
+      CreateProjectHandler() {
+      }
+
+      public void handle(HttpExchange var1) throws IOException {
+         Main.setCORSHeaders(var1);
+         if ("OPTIONS".equalsIgnoreCase(var1.getRequestMethod())) {
+            Main.sendResponse(var1, 204, "");
+         } else if ("GET".equalsIgnoreCase(var1.getRequestMethod())) {
+            Main.sendResponse(var1, 405, "{\"error\":\"Method Not Allowed\"}");
+         } else {
+            if ("POST".equalsIgnoreCase(var1.getRequestMethod())) {
+               String var2 = Main.readRequestBody(var1);
+               Map var3 = Main.parseJsonSimple(var2);
+               String var4 = ((String)var3.getOrDefault("title", "")).trim();
+               String var5 = ((String)var3.getOrDefault("category", "General")).trim();
+               String var6 = ((String)var3.getOrDefault("description", "")).trim();
+               double var7 = Main.parseDouble((String)var3.get("fundingGoal"), (double)0.0F);
+               String var9 = ((String)var3.getOrDefault("requiredSkills", "")).trim();
+               String var10 = ((String)var3.getOrDefault("duration", "")).trim();
+               String var11 = ((String)var3.getOrDefault("teamMembers", "")).trim();
+               String var12 = ((String)var3.getOrDefault("imageUrl", "")).trim();
+               String var13 = ((String)var3.getOrDefault("githubUrl", "")).trim();
+               String var14 = ((String)var3.getOrDefault("demoUrl", "")).trim();
+               int var10002 = Main.students.size();
+               String var15 = ((String)var3.getOrDefault("studentId", "STU-" + (var10002 + 100))).trim();
+               String var16 = ((String)var3.getOrDefault("studentName", "Student Innovator")).trim();
+               String var17 = ((String)var3.getOrDefault("studentEmail", "")).trim();
+               if (var4.isEmpty() || var6.isEmpty() || var7 <= (double)0.0F) {
+                  Main.sendResponse(var1, 400, "{\"success\":false,\"message\":\"Title, description, and positive funding goal are required.\"}");
+                  return;
+               }
+
+               for(Project var19 : Main.projects) {
+                  if (var19.getTitle().equalsIgnoreCase(var4)) {
+                     Main.sendResponse(var1, 400, "{\"success\":false,\"message\":\"A project with this title already exists. Please choose a unique name.\"}");
+                     return;
+                  }
+               }
+
+               if (var12.isEmpty()) {
+                  var12 = "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=800&q=80";
+               }
+
+               String var21 = (new SimpleDateFormat("yyyy-MM-dd")).format(new Date());
+               Object[] var10001 = new Object[]{Main.projects.size() + 1};
+               String var22 = "PRJ-" + String.format("%03d", var10001);
+               Project var20 = new Project(var22, var4, var5, var6, var7, (double)0.0F, var9, var10, var11, var12, var13, var14, var15, var16, var17, var21, "Active");
+               var20.getUpdates().add(new ProjectUpdate("UPD-" + System.currentTimeMillis() % 10000L, var22, "Project Created & Live", "Project officially launched on Micro-Sponsorship Portal! Open for community backing and mentorship.", var21));
+               Main.projects.add(0, var20);
+               Main.sendResponse(var1, 200, "{\"success\":true,\"message\":\"Project created successfully!\",\"project\":" + var20.toJson() + "}");
+            } else {
+               Main.sendResponse(var1, 405, "{\"error\":\"Method Not Allowed\"}");
+            }
+
+         }
+      }
+   }
+
+   static class UpdateProjectHandler implements HttpHandler {
+      UpdateProjectHandler() {
+      }
+
+      public void handle(HttpExchange var1) throws IOException {
+         Main.setCORSHeaders(var1);
+         if ("OPTIONS".equalsIgnoreCase(var1.getRequestMethod())) {
+            Main.sendResponse(var1, 204, "");
+         } else {
+            if ("POST".equalsIgnoreCase(var1.getRequestMethod())) {
+               String var2 = Main.readRequestBody(var1);
+               Map var3 = Main.parseJsonSimple(var2);
+               String var4 = (String)var3.get("id");
+               if (var4 == null || var4.isEmpty()) {
+                  Main.sendResponse(var1, 400, "{\"success\":false,\"message\":\"Project ID is required.\"}");
+                  return;
+               }
+
+               Project var5 = null;
+
+               for(Project var7 : Main.projects) {
+                  if (var7.getId().equalsIgnoreCase(var4)) {
+                     var5 = var7;
+                     break;
+                  }
+               }
+
+               if (var5 == null) {
+                  Main.sendResponse(var1, 404, "{\"success\":false,\"message\":\"Project not found.\"}");
+                  return;
+               }
+
+               if (var3.containsKey("title") && !((String)var3.get("title")).trim().isEmpty()) {
+                  var5.setTitle(((String)var3.get("title")).trim());
+               }
+
+               if (var3.containsKey("category") && !((String)var3.get("category")).trim().isEmpty()) {
+                  var5.setCategory(((String)var3.get("category")).trim());
+               }
+
+               if (var3.containsKey("description") && !((String)var3.get("description")).trim().isEmpty()) {
+                  var5.setDescription(((String)var3.get("description")).trim());
+               }
+
+               if (var3.containsKey("fundingGoal")) {
+                  double var8 = Main.parseDouble((String)var3.get("fundingGoal"), var5.getFundingGoal());
+                  if (var8 > (double)0.0F && var8 >= var5.getCurrentFunding()) {
+                     var5.setFundingGoal(var8);
+                  } else if (var8 > (double)0.0F) {
+                     Main.sendResponse(var1, 400, "{\"success\":false,\"message\":\"Funding goal cannot be lower than the amount already raised.\"}");
+                     return;
+                  }
+               }
+
+               if (var3.containsKey("requiredSkills")) {
+                  var5.setRequiredSkills(((String)var3.get("requiredSkills")).trim());
+               }
+
+               if (var3.containsKey("duration")) {
+                  var5.setDuration(((String)var3.get("duration")).trim());
+               }
+
+               if (var3.containsKey("teamMembers")) {
+                  var5.setTeamMembers(((String)var3.get("teamMembers")).trim());
+               }
+
+               if (var3.containsKey("imageUrl") && !((String)var3.get("imageUrl")).trim().isEmpty()) {
+                  var5.setImageUrl(((String)var3.get("imageUrl")).trim());
+               }
+
+               if (var3.containsKey("githubUrl")) {
+                  var5.setGithubUrl(((String)var3.get("githubUrl")).trim());
+               }
+
+               if (var3.containsKey("demoUrl")) {
+                  var5.setDemoUrl(((String)var3.get("demoUrl")).trim());
+               }
+
+               Main.sendResponse(var1, 200, "{\"success\":true,\"message\":\"Project updated successfully!\",\"project\":" + var5.toJson() + "}");
+            } else {
+               Main.sendResponse(var1, 405, "{\"error\":\"Method Not Allowed\"}");
+            }
+
+         }
+      }
+   }
+
+   static class DeleteProjectHandler implements HttpHandler {
+      DeleteProjectHandler() {
+      }
+
+      public void handle(HttpExchange var1) throws IOException {
+         Main.setCORSHeaders(var1);
+         if ("OPTIONS".equalsIgnoreCase(var1.getRequestMethod())) {
+            Main.sendResponse(var1, 204, "");
+         } else {
+            if ("POST".equalsIgnoreCase(var1.getRequestMethod())) {
+               String var2 = Main.readRequestBody(var1);
+               Map var3 = Main.parseJsonSimple(var2);
+               String var4 = (String)var3.get("id");
+               if (var4 == null || var4.isEmpty()) {
+                  Main.sendResponse(var1, 400, "{\"success\":false,\"message\":\"Project ID is required.\"}");
+                  return;
+               }
+
+               boolean var5 = Main.projects.removeIf((var1x) -> var1x.getId().equalsIgnoreCase(var4));
+               Main.sponsorships.removeIf((var1x) -> var1x.getProjectId().equalsIgnoreCase(var4));
+               if (var5) {
+                  Main.sendResponse(var1, 200, "{\"success\":true,\"message\":\"Project deleted successfully.\"}");
+               } else {
+                  Main.sendResponse(var1, 404, "{\"success\":false,\"message\":\"Project not found.\"}");
+               }
+            } else {
+               Main.sendResponse(var1, 405, "{\"error\":\"Method Not Allowed\"}");
+            }
+
+         }
+      }
+   }
+
+   static class SponsorHandler implements HttpHandler {
+      SponsorHandler() {
+      }
+
+      public void handle(HttpExchange var1) throws IOException {
+         Main.setCORSHeaders(var1);
+         if ("OPTIONS".equalsIgnoreCase(var1.getRequestMethod())) {
+            Main.sendResponse(var1, 204, "");
+         } else {
+            if ("POST".equalsIgnoreCase(var1.getRequestMethod())) {
+               String var2 = Main.readRequestBody(var1);
+               Map var3 = Main.parseJsonSimple(var2);
+               String var4 = (String)var3.get("projectId");
+               String var5 = ((String)var3.getOrDefault("sponsorName", "Anonymous Backer")).trim();
+               String var6 = ((String)var3.getOrDefault("sponsorEmail", "sponsor@example.com")).trim();
+               int var10002 = Main.sponsors.size();
+               String var7 = ((String)var3.getOrDefault("sponsorId", "SPO-" + (var10002 + 201))).trim();
+               String var8 = ((String)var3.getOrDefault("message", "Keep up the great engineering work!")).trim();
+               double var9 = Main.parseDouble((String)var3.get("amount"), (double)0.0F);
+               if (var4 == null || var4.isEmpty() || var9 <= (double)0.0F) {
+                  Main.sendResponse(var1, 400, "{\"success\":false,\"message\":\"Valid project ID and positive sponsorship amount are required.\"}");
+                  return;
+               }
+
+               Project var11 = null;
+
+               for(Project var13 : Main.projects) {
+                  if (var13.getId().equalsIgnoreCase(var4)) {
+                     var11 = var13;
+                     break;
+                  }
+               }
+
+               if (var11 == null) {
+                  Main.sendResponse(var1, 404, "{\"success\":false,\"message\":\"Project not found.\"}");
+                  return;
+               }
+
+               if (var11.getCurrentFunding() >= var11.getFundingGoal()) {
+                  Main.sendResponse(var1, 409, "{\"success\":false,\"message\":\"This project is already fully funded and cannot accept more sponsorships.\"}");
+                  return;
+               }
+
+               if (var9 > var11.getFundingGoal() - var11.getCurrentFunding()) {
+                  Main.sendResponse(var1, 409, "{\"success\":false,\"message\":\"Sponsorship exceeds this project's remaining funding limit.\"}");
+                  return;
+               }
+
+               String var15 = (new SimpleDateFormat("yyyy-MM-dd")).format(new Date());
+               int var10000 = Main.sponsorships.size();
+               String var16 = "SP-" + (var10000 + 101);
+               Sponsorship var14 = new Sponsorship(var16, var11.getId(), var11.getTitle(), var7, var5, var6, var9, var8, var15);
+               Main.sponsorships.add(var14);
+               var11.getSponsorships().add(var14);
+               var11.setCurrentFunding(var11.getCurrentFunding() + var9);
+               if (var11.getCurrentFunding() >= var11.getFundingGoal()) {
+                  var11.setStatus("Funded");
+               }
+
+               String var17 = String.format(Locale.US, "%.2f", var9);
+               Main.sendResponse(var1, 200, "{\"success\":true,\"message\":\"Thank you! Sponsorship of $" + var17 + " was successfully processed.\",\"sponsorship\":" + var14.toJson() + ",\"project\":" + var11.toJson() + "}");
+            } else {
+               Main.sendResponse(var1, 405, "{\"error\":\"Method Not Allowed\"}");
+            }
+
+         }
+      }
+   }
+
+   static class AddUpdateHandler implements HttpHandler {
+      AddUpdateHandler() {
+      }
+
+      public void handle(HttpExchange var1) throws IOException {
+         Main.setCORSHeaders(var1);
+         if ("OPTIONS".equalsIgnoreCase(var1.getRequestMethod())) {
+            Main.sendResponse(var1, 204, "");
+         } else {
+            if ("POST".equalsIgnoreCase(var1.getRequestMethod())) {
+               String var2 = Main.readRequestBody(var1);
+               Map var3 = Main.parseJsonSimple(var2);
+               String var4 = (String)var3.get("projectId");
+               String var5 = ((String)var3.getOrDefault("title", "")).trim();
+               String var6 = ((String)var3.getOrDefault("description", "")).trim();
+               String var7 = ((String)var3.getOrDefault("date", (new SimpleDateFormat("yyyy-MM-dd")).format(new Date()))).trim();
+               if (var4 == null || var5.isEmpty() || var6.isEmpty()) {
+                  Main.sendResponse(var1, 400, "{\"success\":false,\"message\":\"Project ID, update title, and description are required.\"}");
+                  return;
+               }
+
+               Project var8 = null;
+
+               for(Project var10 : Main.projects) {
+                  if (var10.getId().equalsIgnoreCase(var4)) {
+                     var8 = var10;
+                     break;
+                  }
+               }
+
+               if (var8 == null) {
+                  Main.sendResponse(var1, 404, "{\"success\":false,\"message\":\"Project not found.\"}");
+                  return;
+               }
+
+               int var10000 = var8.getUpdates().size();
+               String var11 = "UPD-" + (var10000 + 1);
+               ProjectUpdate var12 = new ProjectUpdate(var11, var8.getId(), var5, var6, var7);
+               var8.getUpdates().add(0, var12);
+               String var10002 = var12.toJson();
+               Main.sendResponse(var1, 200, "{\"success\":true,\"message\":\"Project update posted successfully!\",\"update\":" + var10002 + ",\"project\":" + var8.toJson() + "}");
+            } else {
+               Main.sendResponse(var1, 405, "{\"error\":\"Method Not Allowed\"}");
+            }
+
+         }
+      }
+   }
+
+   static class LoginHandler implements HttpHandler {
+      LoginHandler() {
+      }
+
+      public void handle(HttpExchange var1) throws IOException {
+         Main.setCORSHeaders(var1);
+         if ("OPTIONS".equalsIgnoreCase(var1.getRequestMethod())) {
+            Main.sendResponse(var1, 204, "");
+         } else {
+            if ("POST".equalsIgnoreCase(var1.getRequestMethod())) {
+               String var2 = Main.readRequestBody(var1);
+               Map var3 = Main.parseJsonSimple(var2);
+               String var4 = ((String)var3.getOrDefault("email", "")).trim().toLowerCase();
+               String var5 = ((String)var3.getOrDefault("password", "")).trim();
+               String var6 = ((String)var3.getOrDefault("role", "student")).trim().toLowerCase();
+               if (var4.isEmpty() || var5.isEmpty()) {
+                  Main.sendResponse(var1, 400, "{\"success\":false,\"message\":\"Email and password are required.\"}");
+                  return;
+               }
+
+               if ("student".equals(var6) || var6.isEmpty()) {
+                  for(Student var8 : Main.students) {
+                     if (var8.getEmail().equalsIgnoreCase(var4) && var8.getPassword().equals(var5)) {
+                        String var10002 = var8.toJson();
+                        Main.sendResponse(var1, 200, "{\"success\":true,\"role\":\"student\",\"user\":" + var10002 + ",\"message\":\"Welcome back, " + Main.escapeJson(var8.getName()) + "!\"}");
                         return;
-                    }
-                }
+                     }
+                  }
+               }
 
-                if (imageUrl.isEmpty()) {
-                    imageUrl = "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=800&q=80";
-                }
-
-                String dateStr = new SimpleDateFormat("yyyy-MM-dd").format(new Date());
-                String newId = "PRJ-" + String.format("%03d", projects.size() + 1);
-
-                Project newProject = new Project(
-                        newId, title, category, description, fundingGoal, 0.0,
-                        requiredSkills, duration, teamMembers, imageUrl, githubUrl,
-                        demoUrl, studentId, studentName, studentEmail, dateStr, "Active"
-                );
-
-                // Add welcome milestone update
-                newProject.getUpdates().add(new ProjectUpdate(
-                        "UPD-" + (System.currentTimeMillis() % 10000),
-                        newId,
-                        "Project Created & Live",
-                        "Project officially launched on Micro-Sponsorship Portal! Open for community backing and mentorship.",
-                        dateStr
-                ));
-
-                projects.add(0, newProject);
-
-                sendResponse(exchange, 200, "{\"success\":true,\"message\":\"Project created successfully!\",\"project\":" + newProject.toJson() + "}");
-            } else {
-                sendResponse(exchange, 405, "{\"error\":\"Method Not Allowed\"}");
-            }
-        }
-    }
-
-    /**
-     * POST /updateProject: Updates an existing project
-     */
-    static class UpdateProjectHandler implements HttpHandler {
-        @Override
-        public void handle(HttpExchange exchange) throws IOException {
-            setCORSHeaders(exchange);
-            if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
-                sendResponse(exchange, 204, "");
-                return;
-            }
-            if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-                String body = readRequestBody(exchange);
-                Map<String, String> data = parseJsonSimple(body);
-
-                String id = data.get("id");
-                if (id == null || id.isEmpty()) {
-                    sendResponse(exchange, 400, "{\"success\":false,\"message\":\"Project ID is required.\"}");
-                    return;
-                }
-
-                Project target = null;
-                for (Project p : projects) {
-                    if (p.getId().equalsIgnoreCase(id)) {
-                        target = p;
-                        break;
-                    }
-                }
-
-                if (target == null) {
-                    sendResponse(exchange, 404, "{\"success\":false,\"message\":\"Project not found.\"}");
-                    return;
-                }
-
-                if (data.containsKey("title") && !data.get("title").trim().isEmpty()) target.setTitle(data.get("title").trim());
-                if (data.containsKey("category") && !data.get("category").trim().isEmpty()) target.setCategory(data.get("category").trim());
-                if (data.containsKey("description") && !data.get("description").trim().isEmpty()) target.setDescription(data.get("description").trim());
-                if (data.containsKey("fundingGoal")) {
-                    double g = parseDouble(data.get("fundingGoal"), target.getFundingGoal());
-                    if (g > 0 && g >= target.getCurrentFunding()) target.setFundingGoal(g);
-                    else if (g > 0) {
-                        sendResponse(exchange, 400, "{\"success\":false,\"message\":\"Funding goal cannot be lower than the amount already raised.\"}");
+               if ("sponsor".equals(var6) || var6.isEmpty()) {
+                  for(Sponsor var10 : Main.sponsors) {
+                     if (var10.getEmail().equalsIgnoreCase(var4) && var10.getPassword().equals(var5)) {
+                        String var11 = var10.toJson();
+                        Main.sendResponse(var1, 200, "{\"success\":true,\"role\":\"sponsor\",\"user\":" + var11 + ",\"message\":\"Welcome back, " + Main.escapeJson(var10.getName()) + "!\"}");
                         return;
-                    }
-                }
-                if (data.containsKey("requiredSkills")) target.setRequiredSkills(data.get("requiredSkills").trim());
-                if (data.containsKey("duration")) target.setDuration(data.get("duration").trim());
-                if (data.containsKey("teamMembers")) target.setTeamMembers(data.get("teamMembers").trim());
-                if (data.containsKey("imageUrl") && !data.get("imageUrl").trim().isEmpty()) target.setImageUrl(data.get("imageUrl").trim());
-                if (data.containsKey("githubUrl")) target.setGithubUrl(data.get("githubUrl").trim());
-                if (data.containsKey("demoUrl")) target.setDemoUrl(data.get("demoUrl").trim());
+                     }
+                  }
+               }
 
-                sendResponse(exchange, 200, "{\"success\":true,\"message\":\"Project updated successfully!\",\"project\":" + target.toJson() + "}");
+               if (Main.pendingRegistrations.containsKey(var4)) {
+                  Main.sendResponse(var1, 403, "{\"success\":false,\"message\":\"Please verify your email address before logging in.\"}");
+                  return;
+               }
+
+               Main.sendResponse(var1, 401, "{\"success\":false,\"message\":\"Invalid email or password.\"}");
             } else {
-                sendResponse(exchange, 405, "{\"error\":\"Method Not Allowed\"}");
+               Main.sendResponse(var1, 405, "{\"error\":\"Method Not Allowed\"}");
             }
-        }
-    }
 
-    /**
-     * POST /deleteProject: Deletes a project by ID
-     */
-    static class DeleteProjectHandler implements HttpHandler {
-        @Override
-        public void handle(HttpExchange exchange) throws IOException {
-            setCORSHeaders(exchange);
-            if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
-                sendResponse(exchange, 204, "");
-                return;
-            }
-            if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-                String body = readRequestBody(exchange);
-                Map<String, String> data = parseJsonSimple(body);
-                String id = data.get("id");
+         }
+      }
+   }
 
-                if (id == null || id.isEmpty()) {
-                    sendResponse(exchange, 400, "{\"success\":false,\"message\":\"Project ID is required.\"}");
-                    return;
-                }
+   static class RegisterHandler implements HttpHandler {
+      RegisterHandler() {
+      }
 
-                boolean removed = projects.removeIf(p -> p.getId().equalsIgnoreCase(id));
-                sponsorships.removeIf(s -> s.getProjectId().equalsIgnoreCase(id));
+      public void handle(HttpExchange var1) throws IOException {
+         Main.setCORSHeaders(var1);
+         if ("OPTIONS".equalsIgnoreCase(var1.getRequestMethod())) {
+            Main.sendResponse(var1, 204, "");
+         } else {
+            if ("POST".equalsIgnoreCase(var1.getRequestMethod())) {
+               String var2 = Main.readRequestBody(var1);
+               Map var3 = Main.parseJsonSimple(var2);
+               String var4 = ((String)var3.getOrDefault("role", "student")).trim().toLowerCase();
+               String var5 = ((String)var3.getOrDefault("name", "")).trim();
+               String var6 = ((String)var3.getOrDefault("email", "")).trim().toLowerCase();
+               String var7 = ((String)var3.getOrDefault("password", "")).trim();
+               if (var5.isEmpty() || var6.isEmpty() || var7.isEmpty()) {
+                  Main.sendResponse(var1, 400, "{\"success\":false,\"message\":\"Name, email, and password are required.\"}");
+                  return;
+               }
 
-                if (removed) {
-                    sendResponse(exchange, 200, "{\"success\":true,\"message\":\"Project deleted successfully.\"}");
-                } else {
-                    sendResponse(exchange, 404, "{\"success\":false,\"message\":\"Project not found.\"}");
-                }
+               if (!"student".equals(var4) && !"sponsor".equals(var4)) {
+                  Main.sendResponse(var1, 400, "{\"success\":false,\"message\":\"Choose a valid account type.\"}");
+                  return;
+               }
+
+               if (!var6.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
+                  Main.sendResponse(var1, 400, "{\"success\":false,\"message\":\"Enter a valid email address.\"}");
+                  return;
+               }
+
+               var3.put("role", var4);
+               var3.put("email", var6);
+               if (Main.accountExists(var6)) {
+                  Main.sendResponse(var1, 400, "{\"success\":false,\"message\":\"An account with this email already exists.\"}");
+                  return;
+               }
+
+               PendingRegistration var8 = (PendingRegistration)Main.pendingRegistrations.get(var6);
+               if (var8 != null) {
+                  if (System.currentTimeMillis() <= var8.expiresAt) {
+                     Main.sendResponse(var1, 409, "{\"success\":false,\"verificationRequired\":true,\"email\":\"" + Main.escapeJson(var6) + "\",\"message\":\"A verification code was already sent. Use the resend option.\"}");
+                     return;
+                  }
+
+                  Main.pendingRegistrations.remove(var6, var8);
+               }
+
+               String var9 = Main.createVerificationCode();
+               PendingRegistration var10 = new PendingRegistration(var3, var9);
+               if (Main.pendingRegistrations.putIfAbsent(var6, var10) != null) {
+                  Main.sendResponse(var1, 409, "{\"success\":false,\"message\":\"A verification code was already sent. Use the resend option.\"}");
+                  return;
+               }
+
+               try {
+                  Main.sendVerificationEmail(var6, var9);
+                  var10.refreshCode(var9, System.currentTimeMillis());
+               } catch (IllegalStateException var12) {
+                  Main.pendingRegistrations.remove(var6, var10);
+                  Main.sendResponse(var1, 503, "{\"success\":false,\"message\":\"Email verification is not configured on the server.\"}");
+                  return;
+               } catch (IOException var13) {
+                  Main.pendingRegistrations.remove(var6, var10);
+                  Main.sendResponse(var1, 502, "{\"success\":false,\"message\":\"Could not send the verification email. Check the email provider configuration.\"}");
+                  return;
+               }
+
+               Main.sendResponse(var1, 200, "{\"success\":true,\"verificationRequired\":true,\"email\":\"" + Main.escapeJson(var6) + "\",\"message\":\"A verification code was sent to your email address.\"}");
             } else {
-                sendResponse(exchange, 405, "{\"error\":\"Method Not Allowed\"}");
+               Main.sendResponse(var1, 405, "{\"error\":\"Method Not Allowed\"}");
             }
-        }
-    }
 
-    /**
-     * POST /sponsor: Simulates micro-sponsorship payment and updates project funding
-     */
-    static class SponsorHandler implements HttpHandler {
-        @Override
-        public void handle(HttpExchange exchange) throws IOException {
-            setCORSHeaders(exchange);
-            if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
-                sendResponse(exchange, 204, "");
-                return;
-            }
-            if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-                String body = readRequestBody(exchange);
-                Map<String, String> data = parseJsonSimple(body);
+         }
+      }
+   }
 
-                String projectId = data.get("projectId");
-                String sponsorName = data.getOrDefault("sponsorName", "Anonymous Backer").trim();
-                String sponsorEmail = data.getOrDefault("sponsorEmail", "sponsor@example.com").trim();
-                String sponsorId = data.getOrDefault("sponsorId", "SPO-" + (sponsors.size() + 201)).trim();
-                String message = data.getOrDefault("message", "Keep up the great engineering work!").trim();
-                double amount = parseDouble(data.get("amount"), 0.0);
+   static class VerifyEmailHandler implements HttpHandler {
+      VerifyEmailHandler() {
+      }
 
-                if (projectId == null || projectId.isEmpty() || amount <= 0) {
-                    sendResponse(exchange, 400, "{\"success\":false,\"message\":\"Valid project ID and positive sponsorship amount are required.\"}");
-                    return;
-                }
-
-                Project target = null;
-                for (Project p : projects) {
-                    if (p.getId().equalsIgnoreCase(projectId)) {
-                        target = p;
-                        break;
-                    }
-                }
-
-                if (target == null) {
-                    sendResponse(exchange, 404, "{\"success\":false,\"message\":\"Project not found.\"}");
-                    return;
-                }
-
-                if (target.getCurrentFunding() >= target.getFundingGoal()) {
-                    sendResponse(exchange, 409, "{\"success\":false,\"message\":\"This project is already fully funded and cannot accept more sponsorships.\"}");
-                    return;
-                }
-
-                if (amount > target.getFundingGoal() - target.getCurrentFunding()) {
-                    sendResponse(exchange, 409, "{\"success\":false,\"message\":\"Sponsorship exceeds this project's remaining funding limit.\"}");
-                    return;
-                }
-
-                // Register sponsorship
-                String dateStr = new SimpleDateFormat("yyyy-MM-dd").format(new Date());
-                String spId = "SP-" + (sponsorships.size() + 101);
-                Sponsorship sp = new Sponsorship(spId, target.getId(), target.getTitle(), sponsorId, sponsorName, sponsorEmail, amount, message, dateStr);
-
-                sponsorships.add(sp);
-                target.getSponsorships().add(sp);
-                target.setCurrentFunding(target.getCurrentFunding() + amount);
-
-                if (target.getCurrentFunding() >= target.getFundingGoal()) {
-                    target.setStatus("Funded");
-                }
-
-                sendResponse(exchange, 200, "{\"success\":true,\"message\":\"Thank you! Sponsorship of $" + String.format(Locale.US, "%.2f", amount) + " was successfully processed.\",\"sponsorship\":" + sp.toJson() + ",\"project\":" + target.toJson() + "}");
+      public void handle(HttpExchange var1) throws IOException {
+         Main.setCORSHeaders(var1);
+         if ("OPTIONS".equalsIgnoreCase(var1.getRequestMethod())) {
+            Main.sendResponse(var1, 204, "");
+         } else if (!"POST".equalsIgnoreCase(var1.getRequestMethod())) {
+            Main.sendResponse(var1, 405, "{\"error\":\"Method Not Allowed\"}");
+         } else {
+            Map var2 = Main.parseJsonSimple(Main.readRequestBody(var1));
+            String var3 = ((String)var2.getOrDefault("email", "")).trim().toLowerCase();
+            String var4 = ((String)var2.getOrDefault("code", "")).trim();
+            PendingRegistration var5 = (PendingRegistration)Main.pendingRegistrations.get(var3);
+            if (var5 == null) {
+               Main.sendResponse(var1, 404, "{\"success\":false,\"message\":\"No pending registration was found. Register again to request a new code.\"}");
             } else {
-                sendResponse(exchange, 405, "{\"error\":\"Method Not Allowed\"}");
+               synchronized(var5) {
+                  long var7 = System.currentTimeMillis();
+                  if (var7 > var5.expiresAt) {
+                     Main.pendingRegistrations.remove(var3, var5);
+                     Main.sendResponse(var1, 410, "{\"success\":false,\"message\":\"The verification code expired. Register again to request a new code.\"}");
+                  } else if (var5.attempts >= 5) {
+                     Main.pendingRegistrations.remove(var3, var5);
+                     Main.sendResponse(var1, 429, "{\"success\":false,\"message\":\"Too many incorrect codes. Register again to restart verification.\"}");
+                  } else if (var4.matches("[0-9]{6}") && MessageDigest.isEqual(var5.codeHash, Main.hashVerificationCode(var4))) {
+                     try {
+                        String var9 = Main.createRegisteredAccount(var5.registrationData);
+                        Main.pendingRegistrations.remove(var3, var5);
+                        Main.sendResponse(var1, 200, var9);
+                     } catch (IllegalArgumentException var11) {
+                        Main.pendingRegistrations.remove(var3, var5);
+                        Main.sendResponse(var1, 409, "{\"success\":false,\"message\":\"An account with this email already exists.\"}");
+                     }
+
+                  } else {
+                     ++var5.attempts;
+                     if (var5.attempts >= 5) {
+                        Main.pendingRegistrations.remove(var3, var5);
+                        Main.sendResponse(var1, 429, "{\"success\":false,\"message\":\"Too many incorrect codes. Register again to restart verification.\"}");
+                     } else {
+                        Main.sendResponse(var1, 400, "{\"success\":false,\"message\":\"That verification code is incorrect. Try again.\"}");
+                     }
+
+                  }
+               }
             }
-        }
-    }
+         }
+      }
+   }
 
-    /**
-     * POST /addProjectUpdate: Adds a milestone update to a project
-     */
-    static class AddUpdateHandler implements HttpHandler {
-        @Override
-        public void handle(HttpExchange exchange) throws IOException {
-            setCORSHeaders(exchange);
-            if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
-                sendResponse(exchange, 204, "");
-                return;
-            }
-            if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-                String body = readRequestBody(exchange);
-                Map<String, String> data = parseJsonSimple(body);
+   static class ResendVerificationHandler implements HttpHandler {
+      ResendVerificationHandler() {
+      }
 
-                String projectId = data.get("projectId");
-                String title = data.getOrDefault("title", "").trim();
-                String description = data.getOrDefault("description", "").trim();
-                String dateStr = data.getOrDefault("date", new SimpleDateFormat("yyyy-MM-dd").format(new Date())).trim();
-
-                if (projectId == null || title.isEmpty() || description.isEmpty()) {
-                    sendResponse(exchange, 400, "{\"success\":false,\"message\":\"Project ID, update title, and description are required.\"}");
-                    return;
-                }
-
-                Project target = null;
-                for (Project p : projects) {
-                    if (p.getId().equalsIgnoreCase(projectId)) {
-                        target = p;
-                        break;
-                    }
-                }
-
-                if (target == null) {
-                    sendResponse(exchange, 404, "{\"success\":false,\"message\":\"Project not found.\"}");
-                    return;
-                }
-
-                String updateId = "UPD-" + (target.getUpdates().size() + 1);
-                ProjectUpdate update = new ProjectUpdate(updateId, target.getId(), title, description, dateStr);
-                target.getUpdates().add(0, update);
-
-                sendResponse(exchange, 200, "{\"success\":true,\"message\":\"Project update posted successfully!\",\"update\":" + update.toJson() + ",\"project\":" + target.toJson() + "}");
+      public void handle(HttpExchange var1) throws IOException {
+         Main.setCORSHeaders(var1);
+         if ("OPTIONS".equalsIgnoreCase(var1.getRequestMethod())) {
+            Main.sendResponse(var1, 204, "");
+         } else if (!"POST".equalsIgnoreCase(var1.getRequestMethod())) {
+            Main.sendResponse(var1, 405, "{\"error\":\"Method Not Allowed\"}");
+         } else {
+            Map var2 = Main.parseJsonSimple(Main.readRequestBody(var1));
+            String var3 = ((String)var2.getOrDefault("email", "")).trim().toLowerCase();
+            PendingRegistration var4 = (PendingRegistration)Main.pendingRegistrations.get(var3);
+            if (var4 == null) {
+               Main.sendResponse(var1, 404, "{\"success\":false,\"message\":\"No pending verification was found. Register again to request a code.\"}");
             } else {
-                sendResponse(exchange, 405, "{\"error\":\"Method Not Allowed\"}");
-            }
-        }
-    }
+               synchronized(var4) {
+                  long var6 = System.currentTimeMillis();
+                  if (var6 > var4.expiresAt) {
+                     Main.pendingRegistrations.remove(var3, var4);
+                     Main.sendResponse(var1, 410, "{\"success\":false,\"message\":\"The verification request expired. Register again to restart.\"}");
+                  } else {
+                     long var8 = 60000L - (var6 - var4.lastSentAt);
+                     if (var8 > 0L) {
+                        long var16 = (var8 + 999L) / 1000L;
+                        Main.sendResponse(var1, 429, "{\"success\":false,\"message\":\"Please wait " + var16 + " seconds before requesting another code.\"}");
+                     } else {
+                        String var10 = Main.createVerificationCode();
 
-    /**
-     * POST /login: Authenticates user credentials (Student, Sponsor, Admin)
-     */
-    static class LoginHandler implements HttpHandler {
-        @Override
-        public void handle(HttpExchange exchange) throws IOException {
-            setCORSHeaders(exchange);
-            if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
-                sendResponse(exchange, 204, "");
-                return;
-            }
-            if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-                String body = readRequestBody(exchange);
-                Map<String, String> data = parseJsonSimple(body);
-
-                String email = data.getOrDefault("email", "").trim().toLowerCase();
-                String password = data.getOrDefault("password", "").trim();
-                String role = data.getOrDefault("role", "student").trim().toLowerCase();
-
-                if (email.isEmpty() || password.isEmpty()) {
-                    sendResponse(exchange, 400, "{\"success\":false,\"message\":\"Email and password are required.\"}");
-                    return;
-                }
-
-                // Check Admin
-                if ("admin".equals(role) || email.contains("admin")) {
-                    if ("admin@studentfund.edu".equals(email) && "admin123".equals(password)) {
-                        String userJson = "{\"id\":\"ADM-001\",\"name\":\"System Administrator\",\"email\":\"" + escapeJson(email) + "\",\"role\":\"admin\"}";
-                        sendResponse(exchange, 200, "{\"success\":true,\"role\":\"admin\",\"user\":" + userJson + ",\"message\":\"Admin login successful.\"}");
-                        return;
-                    }
-                }
-
-                // Check Student
-                if ("student".equals(role) || role.isEmpty()) {
-                    for (Student s : students) {
-                        if (s.getEmail().equalsIgnoreCase(email)) {
-                            if (s.getPassword().equals(password)) {
-                                sendResponse(exchange, 200, "{\"success\":true,\"role\":\"student\",\"user\":" + s.toJson() + ",\"message\":\"Welcome back, " + escapeJson(s.getName()) + "!\"}");
-                                return;
-                            }
+                        try {
+                           Main.sendVerificationEmail(var3, var10);
+                           var4.refreshCode(var10, var6);
+                           Main.sendResponse(var1, 200, "{\"success\":true,\"message\":\"A new verification code was sent.\"}");
+                        } catch (IllegalStateException var13) {
+                           Main.sendResponse(var1, 503, "{\"success\":false,\"message\":\"Email verification is not configured on the server.\"}");
+                        } catch (IOException var14) {
+                           Main.sendResponse(var1, 502, "{\"success\":false,\"message\":\"Could not send the verification email. Check the email provider configuration.\"}");
                         }
-                    }
-                }
 
-                // Check Sponsor
-                if ("sponsor".equals(role) || role.isEmpty()) {
-                    for (Sponsor sp : sponsors) {
-                        if (sp.getEmail().equalsIgnoreCase(email)) {
-                            if (sp.getPassword().equals(password)) {
-                                sendResponse(exchange, 200, "{\"success\":true,\"role\":\"sponsor\",\"user\":" + sp.toJson() + ",\"message\":\"Welcome back, " + escapeJson(sp.getName()) + "!\"}");
-                                return;
-                            }
-                        }
-                    }
-                }
+                     }
+                  }
+               }
+            }
+         }
+      }
+   }
 
-                sendResponse(exchange, 401, "{\"success\":false,\"message\":\"Invalid email or password.\"}");
+   static class StatsHandler implements HttpHandler {
+      StatsHandler() {
+      }
+
+      public void handle(HttpExchange var1) throws IOException {
+         Main.setCORSHeaders(var1);
+         if ("OPTIONS".equalsIgnoreCase(var1.getRequestMethod())) {
+            Main.sendResponse(var1, 204, "");
+         } else {
+            if ("GET".equalsIgnoreCase(var1.getRequestMethod())) {
+               double var2 = (double)0.0F;
+               int var4 = 0;
+
+               for(Project var6 : Main.projects) {
+                  var2 += var6.getCurrentFunding();
+                  if (var6.getCurrentFunding() >= var6.getFundingGoal()) {
+                     ++var4;
+                  }
+               }
+
+               String var7 = String.format(Locale.US, "{\"totalStudents\":%d,\"totalSponsors\":%d,\"totalProjects\":%d,\"totalSponsorship\":%.2f,\"completedProjects\":%d}", Main.students.size(), Main.sponsors.size(), Main.projects.size(), var2, var4);
+               Main.sendResponse(var1, 200, var7);
             } else {
-                sendResponse(exchange, 405, "{\"error\":\"Method Not Allowed\"}");
+               Main.sendResponse(var1, 405, "{\"error\":\"Method Not Allowed\"}");
             }
-        }
-    }
 
-    /**
-     * POST /register: Handles Student or Sponsor registration
-     */
-    static class RegisterHandler implements HttpHandler {
-        @Override
-        public void handle(HttpExchange exchange) throws IOException {
-            setCORSHeaders(exchange);
-            if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
-                sendResponse(exchange, 204, "");
-                return;
-            }
-            if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-                String body = readRequestBody(exchange);
-                Map<String, String> data = parseJsonSimple(body);
+         }
+      }
+   }
 
-                String role = data.getOrDefault("role", "student").trim().toLowerCase();
-                String name = data.getOrDefault("name", "").trim();
-                String email = data.getOrDefault("email", "").trim().toLowerCase();
-                String password = data.getOrDefault("password", "").trim();
+   static class StudentsHandler implements HttpHandler {
+      StudentsHandler() {
+      }
 
-                if (name.isEmpty() || email.isEmpty() || password.isEmpty()) {
-                    sendResponse(exchange, 400, "{\"success\":false,\"message\":\"Name, email, and password are required.\"}");
-                    return;
-                }
+      public void handle(HttpExchange var1) throws IOException {
+         Main.setCORSHeaders(var1);
+         if ("OPTIONS".equalsIgnoreCase(var1.getRequestMethod())) {
+            Main.sendResponse(var1, 204, "");
+         } else {
+            if ("GET".equalsIgnoreCase(var1.getRequestMethod())) {
+               StringBuilder var2 = new StringBuilder("[");
 
-                if ("sponsor".equals(role)) {
-                    for (Sponsor s : sponsors) {
-                        if (s.getEmail().equalsIgnoreCase(email)) {
-                            sendResponse(exchange, 400, "{\"success\":false,\"message\":\"An account with this email already exists.\"}");
-                            return;
-                        }
-                    }
-                    String type = data.getOrDefault("type", "Individual");
-                    String company = data.getOrDefault("company", name);
-                    String bio = data.getOrDefault("bio", "Passionate supporter of youth technology projects.");
-                    String newId = "SPO-" + (sponsors.size() + 201);
-                    Sponsor sponsor = new Sponsor(newId, name, email, password, type, company, bio);
-                    sponsors.add(sponsor);
-                    sendResponse(exchange, 200, "{\"success\":true,\"role\":\"sponsor\",\"user\":" + sponsor.toJson() + ",\"message\":\"Sponsor registration successful!\"}");
-                } else {
-                    for (Student s : students) {
-                        if (s.getEmail().equalsIgnoreCase(email)) {
-                            sendResponse(exchange, 400, "{\"success\":false,\"message\":\"An account with this email already exists.\"}");
-                            return;
-                        }
-                    }
-                    String university = data.getOrDefault("university", "Engineering Institute");
-                    String department = data.getOrDefault("department", "Computer Engineering");
-                    String year = data.getOrDefault("year", "3rd Year");
-                    String skills = data.getOrDefault("skills", "Software, Hardware");
-                    String bio = data.getOrDefault("bio", "Aspiring engineer and project creator.");
-                    String newId = "STU-" + (students.size() + 101);
-                    Student student = new Student(newId, name, email, password, university, department, year, skills, bio);
-                    students.add(student);
-                    sendResponse(exchange, 200, "{\"success\":true,\"role\":\"student\",\"user\":" + student.toJson() + ",\"message\":\"Student registration successful!\"}");
-                }
+               for(int var3 = 0; var3 < Main.students.size(); ++var3) {
+                  var2.append(((Student)Main.students.get(var3)).toJson());
+                  if (var3 < Main.students.size() - 1) {
+                     var2.append(",");
+                  }
+               }
+
+               var2.append("]");
+               Main.sendResponse(var1, 200, var2.toString());
             } else {
-                sendResponse(exchange, 405, "{\"error\":\"Method Not Allowed\"}");
+               Main.sendResponse(var1, 405, "{\"error\":\"Method Not Allowed\"}");
             }
-        }
-    }
 
-    /**
-     * GET /stats: Aggregate portal statistics
-     */
-    static class StatsHandler implements HttpHandler {
-        @Override
-        public void handle(HttpExchange exchange) throws IOException {
-            setCORSHeaders(exchange);
-            if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
-                sendResponse(exchange, 204, "");
-                return;
-            }
-            if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
-                double totalFunded = 0;
-                int completedCount = 0;
-                for (Project p : projects) {
-                    totalFunded += p.getCurrentFunding();
-                    if (p.getCurrentFunding() >= p.getFundingGoal()) {
-                        completedCount++;
-                    }
-                }
+         }
+      }
+   }
 
-                String statsJson = String.format(
-                        Locale.US,
-                        "{\"totalStudents\":%d,\"totalSponsors\":%d,\"totalProjects\":%d,\"totalSponsorship\":%.2f,\"completedProjects\":%d}",
-                        students.size(),
-                        sponsors.size(),
-                        projects.size(),
-                        totalFunded,
-                        completedCount
-                );
+   static class SponsorsHandler implements HttpHandler {
+      SponsorsHandler() {
+      }
 
-                sendResponse(exchange, 200, statsJson);
+      public void handle(HttpExchange var1) throws IOException {
+         Main.setCORSHeaders(var1);
+         if ("OPTIONS".equalsIgnoreCase(var1.getRequestMethod())) {
+            Main.sendResponse(var1, 204, "");
+         } else {
+            if ("GET".equalsIgnoreCase(var1.getRequestMethod())) {
+               StringBuilder var2 = new StringBuilder("[");
+
+               for(int var3 = 0; var3 < Main.sponsors.size(); ++var3) {
+                  var2.append(((Sponsor)Main.sponsors.get(var3)).toJson());
+                  if (var3 < Main.sponsors.size() - 1) {
+                     var2.append(",");
+                  }
+               }
+
+               var2.append("]");
+               Main.sendResponse(var1, 200, var2.toString());
             } else {
-                sendResponse(exchange, 405, "{\"error\":\"Method Not Allowed\"}");
+               Main.sendResponse(var1, 405, "{\"error\":\"Method Not Allowed\"}");
             }
-        }
-    }
 
-    /**
-     * GET /students: List of students
-     */
-    static class StudentsHandler implements HttpHandler {
-        @Override
-        public void handle(HttpExchange exchange) throws IOException {
-            setCORSHeaders(exchange);
-            if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
-                sendResponse(exchange, 204, "");
-                return;
-            }
-            if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
-                StringBuilder sb = new StringBuilder("[");
-                for (int i = 0; i < students.size(); i++) {
-                    sb.append(students.get(i).toJson());
-                    if (i < students.size() - 1) sb.append(",");
-                }
-                sb.append("]");
-                sendResponse(exchange, 200, sb.toString());
-            } else {
-                sendResponse(exchange, 405, "{\"error\":\"Method Not Allowed\"}");
-            }
-        }
-    }
+         }
+      }
+   }
 
-    /**
-     * GET /sponsors: List of sponsors
-     */
-    static class SponsorsHandler implements HttpHandler {
-        @Override
-        public void handle(HttpExchange exchange) throws IOException {
-            setCORSHeaders(exchange);
-            if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
-                sendResponse(exchange, 204, "");
-                return;
-            }
-            if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
-                StringBuilder sb = new StringBuilder("[");
-                for (int i = 0; i < sponsors.size(); i++) {
-                    sb.append(sponsors.get(i).toJson());
-                    if (i < sponsors.size() - 1) sb.append(",");
-                }
-                sb.append("]");
-                sendResponse(exchange, 200, sb.toString());
-            } else {
-                sendResponse(exchange, 405, "{\"error\":\"Method Not Allowed\"}");
-            }
-        }
-    }
+   private static final class PendingRegistration {
+      private final Map<String, String> registrationData;
+      private byte[] codeHash;
+      private long expiresAt;
+      private long lastSentAt;
+      private int attempts;
 
-    // ==========================================
-    // Helper Utilities
-    // ==========================================
+      private PendingRegistration(Map<String, String> var1, String var2) {
+         this.registrationData = new HashMap(var1);
+         this.refreshCode(var2, System.currentTimeMillis());
+      }
 
-    private static void setCORSHeaders(HttpExchange exchange) {
-        exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
-        exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE");
-        exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
-    }
-
-    private static void sendResponse(HttpExchange exchange, int statusCode, String responseText) throws IOException {
-        sendResponse(exchange, statusCode, responseText, "application/json; charset=UTF-8");
-    }
-
-    private static void sendResponse(HttpExchange exchange, int statusCode, String responseText, String contentType) throws IOException {
-        byte[] bytes = responseText.getBytes(StandardCharsets.UTF_8);
-        exchange.getResponseHeaders().set("Content-Type", contentType);
-        exchange.sendResponseHeaders(statusCode, bytes.length);
-        try (OutputStream os = exchange.getResponseBody()) {
-            os.write(bytes);
-        }
-    }
-
-    private static String readRequestBody(HttpExchange exchange) throws IOException {
-        try (InputStream is = exchange.getRequestBody();
-             ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
-            byte[] buffer = new byte[1024];
-            int length;
-            while ((length = is.read(buffer)) != -1) {
-                baos.write(buffer, 0, length);
-            }
-            return baos.toString(StandardCharsets.UTF_8.name());
-        }
-    }
-
-    private static double parseDouble(String str, double defaultVal) {
-        if (str == null || str.trim().isEmpty()) return defaultVal;
-        try {
-            return Double.parseDouble(str.trim().replace("$", "").replace(",", ""));
-        } catch (NumberFormatException e) {
-            return defaultVal;
-        }
-    }
-
-    public static String escapeJson(String s) {
-        if (s == null) return "";
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < s.length(); i++) {
-            char ch = s.charAt(i);
-            switch (ch) {
-                case '"' -> sb.append("\\\"");
-                case '\\' -> sb.append("\\\\");
-                case '\b' -> sb.append("\\b");
-                case '\f' -> sb.append("\\f");
-                case '\n' -> sb.append("\\n");
-                case '\r' -> sb.append("\\r");
-                case '\t' -> sb.append("\\t");
-                default -> {
-                    if (ch < ' ') {
-                        String hex = String.format("\\u%04x", (int) ch);
-                        sb.append(hex);
-                    } else {
-                        sb.append(ch);
-                    }
-                }
-            }
-        }
-        return sb.toString();
-    }
-
-    /**
-     * Simple JSON parser for single-level or basic JSON strings
-     */
-    public static Map<String, String> parseJsonSimple(String json) {
-        Map<String, String> map = new HashMap<>();
-        if (json == null || json.trim().isEmpty()) return map;
-
-        String s = json.trim();
-        if (s.startsWith("{")) s = s.substring(1);
-        if (s.endsWith("}")) s = s.substring(0, s.length() - 1);
-
-        boolean inQuote = false;
-        boolean escape = false;
-        StringBuilder currentToken = new StringBuilder();
-        List<String> tokens = new ArrayList<>();
-
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            if (escape) {
-                currentToken.append(c);
-                escape = false;
-                continue;
-            }
-            if (c == '\\') {
-                escape = true;
-                continue;
-            }
-            if (c == '"') {
-                inQuote = !inQuote;
-                continue;
-            }
-            if (c == ',' && !inQuote) {
-                tokens.add(currentToken.toString().trim());
-                currentToken.setLength(0);
-                continue;
-            }
-            currentToken.append(c);
-        }
-        if (currentToken.length() > 0) {
-            tokens.add(currentToken.toString().trim());
-        }
-
-        for (String pair : tokens) {
-            int colonIdx = pair.indexOf(':');
-            if (colonIdx != -1) {
-                String key = pair.substring(0, colonIdx).trim().replaceAll("^\"|\"$", "");
-                String value = pair.substring(colonIdx + 1).trim().replaceAll("^\"|\"$", "");
-                map.put(key, value);
-            }
-        }
-        return map;
-    }
-}
-
-// ==========================================
-// Data Models
-// ==========================================
-
-class Student {
-    private final String id;
-    private final String name;
-    private final String email;
-    private final String password;
-    private final String university;
-    private final String department;
-    private final String year;
-    private final String skills;
-    private final String bio;
-
-    public Student(String id, String name, String email, String password, String university, String department, String year, String skills, String bio) {
-        this.id = id;
-        this.name = name;
-        this.email = email;
-        this.password = password;
-        this.university = university;
-        this.department = department;
-        this.year = year;
-        this.skills = skills;
-        this.bio = bio;
-    }
-
-    public String getId() { return id; }
-    public String getName() { return name; }
-    public String getEmail() { return email; }
-    public String getPassword() { return password; }
-    public String getUniversity() { return university; }
-    public String getDepartment() { return department; }
-    public String getYear() { return year; }
-    public String getSkills() { return skills; }
-    public String getBio() { return bio; }
-
-    public String toJson() {
-        return String.format(
-                "{\"id\":\"%s\",\"name\":\"%s\",\"email\":\"%s\",\"university\":\"%s\",\"department\":\"%s\",\"year\":\"%s\",\"skills\":\"%s\",\"bio\":\"%s\"}",
-                Main.escapeJson(id),
-                Main.escapeJson(name),
-                Main.escapeJson(email),
-                Main.escapeJson(university),
-                Main.escapeJson(department),
-                Main.escapeJson(year),
-                Main.escapeJson(skills),
-                Main.escapeJson(bio)
-        );
-    }
-}
-
-class Sponsor {
-    private final String id;
-    private final String name;
-    private final String email;
-    private final String password;
-    private final String type;
-    private final String company;
-    private final String bio;
-
-    public Sponsor(String id, String name, String email, String password, String type, String company, String bio) {
-        this.id = id;
-        this.name = name;
-        this.email = email;
-        this.password = password;
-        this.type = type;
-        this.company = company;
-        this.bio = bio;
-    }
-
-    public String getId() { return id; }
-    public String getName() { return name; }
-    public String getEmail() { return email; }
-    public String getPassword() { return password; }
-    public String getType() { return type; }
-    public String getCompany() { return company; }
-    public String getBio() { return bio; }
-
-    public String toJson() {
-        return String.format(
-                "{\"id\":\"%s\",\"name\":\"%s\",\"email\":\"%s\",\"type\":\"%s\",\"company\":\"%s\",\"bio\":\"%s\"}",
-                Main.escapeJson(id),
-                Main.escapeJson(name),
-                Main.escapeJson(email),
-                Main.escapeJson(type),
-                Main.escapeJson(company),
-                Main.escapeJson(bio)
-        );
-    }
-}
-
-class ProjectUpdate {
-    private final String id;
-    private final String projectId;
-    private final String title;
-    private final String description;
-    private final String date;
-
-    public ProjectUpdate(String id, String projectId, String title, String description, String date) {
-        this.id = id;
-        this.projectId = projectId;
-        this.title = title;
-        this.description = description;
-        this.date = date;
-    }
-
-    public String getId() { return id; }
-    public String getProjectId() { return projectId; }
-    public String getTitle() { return title; }
-    public String getDescription() { return description; }
-    public String getDate() { return date; }
-
-    public String toJson() {
-        return String.format(
-                "{\"id\":\"%s\",\"projectId\":\"%s\",\"title\":\"%s\",\"description\":\"%s\",\"date\":\"%s\"}",
-                Main.escapeJson(id),
-                Main.escapeJson(projectId),
-                Main.escapeJson(title),
-                Main.escapeJson(description),
-                Main.escapeJson(date)
-        );
-    }
-}
-
-class Sponsorship {
-    private final String id;
-    private final String projectId;
-    private final String projectTitle;
-    private final String sponsorId;
-    private final String sponsorName;
-    private final String sponsorEmail;
-    private final double amount;
-    private final String message;
-    private final String date;
-
-    public Sponsorship(String id, String projectId, String projectTitle, String sponsorId, String sponsorName, String sponsorEmail, double amount, String message, String date) {
-        this.id = id;
-        this.projectId = projectId;
-        this.projectTitle = projectTitle;
-        this.sponsorId = sponsorId;
-        this.sponsorName = sponsorName;
-        this.sponsorEmail = sponsorEmail;
-        this.amount = amount;
-        this.message = message;
-        this.date = date;
-    }
-
-    public String getId() { return id; }
-    public String getProjectId() { return projectId; }
-    public String getProjectTitle() { return projectTitle; }
-    public String getSponsorId() { return sponsorId; }
-    public String getSponsorName() { return sponsorName; }
-    public String getSponsorEmail() { return sponsorEmail; }
-    public double getAmount() { return amount; }
-    public String getMessage() { return message; }
-    public String getDate() { return date; }
-
-    public String toJson() {
-        return String.format(
-                Locale.US,
-                "{\"id\":\"%s\",\"projectId\":\"%s\",\"projectTitle\":\"%s\",\"sponsorId\":\"%s\",\"sponsorName\":\"%s\",\"sponsorEmail\":\"%s\",\"amount\":%.2f,\"message\":\"%s\",\"date\":\"%s\"}",
-                Main.escapeJson(id),
-                Main.escapeJson(projectId),
-                Main.escapeJson(projectTitle),
-                Main.escapeJson(sponsorId),
-                Main.escapeJson(sponsorName),
-                Main.escapeJson(sponsorEmail),
-                amount,
-                Main.escapeJson(message),
-                Main.escapeJson(date)
-        );
-    }
-}
-
-class Project {
-    private final String id;
-    private String title;
-    private String category;
-    private String description;
-    private double fundingGoal;
-    private double currentFunding;
-    private String requiredSkills;
-    private String duration;
-    private String teamMembers;
-    private String imageUrl;
-    private String githubUrl;
-    private String demoUrl;
-    private final String studentId;
-    private final String studentName;
-    private final String studentEmail;
-    private final String createdAt;
-    private String status;
-    private final List<ProjectUpdate> updates = new ArrayList<>();
-    private final List<Sponsorship> sponsorships = new ArrayList<>();
-
-    public Project(String id, String title, String category, String description, double fundingGoal, double currentFunding,
-                   String requiredSkills, String duration, String teamMembers, String imageUrl, String githubUrl,
-                   String demoUrl, String studentId, String studentName, String studentEmail, String createdAt, String status) {
-        this.id = id;
-        this.title = title;
-        this.category = category;
-        this.description = description;
-        this.fundingGoal = fundingGoal;
-        this.currentFunding = currentFunding;
-        this.requiredSkills = requiredSkills;
-        this.duration = duration;
-        this.teamMembers = teamMembers;
-        this.imageUrl = imageUrl;
-        this.githubUrl = githubUrl;
-        this.demoUrl = demoUrl;
-        this.studentId = studentId;
-        this.studentName = studentName;
-        this.studentEmail = studentEmail;
-        this.createdAt = createdAt;
-        this.status = status;
-    }
-
-    public String getId() { return id; }
-    public String getTitle() { return title; }
-    public String getCategory() { return category; }
-
-    public String getDescription() { return description; }
-    public String setDescription(String description) { this.description = description; return description; }
-    public double getFundingGoal() { return fundingGoal; }
-    public double setFundingGoal(double fundingGoal) { this.fundingGoal = fundingGoal; return fundingGoal; }
-    public double getCurrentFunding() { return currentFunding; }
-    public double setCurrentFunding(double currentFunding) { this.currentFunding = currentFunding; return currentFunding; }
-    public String getRequiredSkills() { return requiredSkills; }
-    public String setRequiredSkills(String requiredSkills) { this.requiredSkills = requiredSkills; return requiredSkills; }
-    public String getDuration() { return duration; }
-    public String setDuration(String duration) { this.duration = duration; return duration; }
-    public String getTeamMembers() { return teamMembers; }
-    public void setTeamMembers(String teamMembers) { this.teamMembers = teamMembers; }
-    public String getImageUrl() { return imageUrl; }
-    public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
-    public String getGithubUrl() { return githubUrl; }
-    public void setGithubUrl(String githubUrl) { this.githubUrl = githubUrl; }
-    public String getDemoUrl() { return demoUrl; }
-    public void setDemoUrl(String demoUrl) { this.demoUrl = demoUrl; }
-    public String getStudentId() { return studentId; }
-    public String getStudentName() { return studentName; }
-    public String getStudentEmail() { return studentEmail; }
-    public String getCreatedAt() { return createdAt; }
-    public String getStatus() { return status; }
-    public void setStatus(String status) { this.status = status; }
-    public List<ProjectUpdate> getUpdates() { return updates; }
-    public List<Sponsorship> getSponsorships() { return sponsorships; }
-
-    public double getFundingPercentage() {
-        if (fundingGoal <= 0) return 0.0;
-        return Math.min(100.0, (currentFunding / fundingGoal) * 100.0);
-    }
-
-    public String toJson() {
-        StringBuilder updatesJson = new StringBuilder("[");
-        for (int i = 0; i < updates.size(); i++) {
-            updatesJson.append(updates.get(i).toJson());
-            if (i < updates.size() - 1) updatesJson.append(",");
-        }
-        updatesJson.append("]");
-
-        StringBuilder spJson = new StringBuilder("[");
-        for (int i = 0; i < sponsorships.size(); i++) {
-            spJson.append(sponsorships.get(i).toJson());
-            if (i < sponsorships.size() - 1) spJson.append(",");
-        }
-        spJson.append("]");
-
-        return String.format(
-                Locale.US,
-                "{\"id\":\"%s\",\"title\":\"%s\",\"category\":\"%s\",\"description\":\"%s\",\"fundingGoal\":%.2f,\"currentFunding\":%.2f,\"fundingPercentage\":%.1f,\"requiredSkills\":\"%s\",\"duration\":\"%s\",\"teamMembers\":\"%s\",\"imageUrl\":\"%s\",\"githubUrl\":\"%s\",\"demoUrl\":\"%s\",\"studentId\":\"%s\",\"studentName\":\"%s\",\"studentEmail\":\"%s\",\"createdAt\":\"%s\",\"status\":\"%s\",\"updates\":%s,\"sponsorships\":%s}",
-                Main.escapeJson(id),
-                Main.escapeJson(title),
-                Main.escapeJson(category),
-                Main.escapeJson(description),
-                fundingGoal,
-                currentFunding,
-                getFundingPercentage(),
-                Main.escapeJson(requiredSkills),
-                Main.escapeJson(duration),
-                Main.escapeJson(teamMembers),
-                Main.escapeJson(imageUrl),
-                Main.escapeJson(githubUrl),
-                Main.escapeJson(demoUrl),
-                Main.escapeJson(studentId),
-                Main.escapeJson(studentName),
-                Main.escapeJson(studentEmail),
-                Main.escapeJson(createdAt),
-                Main.escapeJson(status),
-                updatesJson.toString(),
-                spJson.toString()
-        );
-    }
-
-    void setTitle(String title) {
-        this.title = title;
-    }
-
-    void setCategory(String category) {
-        this.category = category;
-    }
+      private void refreshCode(String var1, long var2) {
+         this.codeHash = Main.hashVerificationCode(var1);
+         this.expiresAt = var2 + 600000L;
+         this.lastSentAt = var2;
+         this.attempts = 0;
+      }
+   }
 }
