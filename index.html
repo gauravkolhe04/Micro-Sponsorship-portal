@@ -159,10 +159,19 @@
 
                 <div class="category-pills" id="categoryPillsContainer">
                     <button class="category-pill-btn active" data-category="ALL">All Categories</button>
-                    <button class="category-pill-btn" data-category="AI & Machine Learning">AI & Machine Learning</button>
-                    <button class="category-pill-btn" data-category="IoT & Robotics">IoT & Robotics</button>
-                    <button class="category-pill-btn" data-category="GreenTech & Energy">GreenTech & Energy</button>
-                    <button class="category-pill-btn" data-category="HealthTech & Blockchain">HealthTech & Blockchain</button>
+                    <button class="category-pill-btn" data-category="Artificial Intelligence">Artificial Intelligence</button>
+                    <button class="category-pill-btn" data-category="Education Technology">Education Technology</button>
+                    <button class="category-pill-btn" data-category="Career Technology">Career Technology</button>
+                    <button class="category-pill-btn" data-category="Robotics & Automation">Robotics & Automation</button>
+                    <button class="category-pill-btn" data-category="AgriTech">AgriTech</button>
+                    <button class="category-pill-btn" data-category="Industrial Automation">Industrial Automation</button>
+                    <button class="category-pill-btn" data-category="Renewable Energy">Renewable Energy</button>
+                    <button class="category-pill-btn" data-category="Water & Climate Tech">Water & Climate Tech</button>
+                    <button class="category-pill-btn" data-category="HealthTech">HealthTech</button>
+                    <button class="category-pill-btn" data-category="Blockchain & Digital Identity">Blockchain & Digital Identity</button>
+                    <button class="category-pill-btn" data-category="Virtual Reality & Simulation">Virtual Reality & Simulation</button>
+                    <button class="category-pill-btn" data-category="Augmented Reality & Design">Augmented Reality & Design</button>
+                    <button class="category-pill-btn" data-category="Cybersecurity & Privacy">Cybersecurity & Privacy</button>
                 </div>
             </div>
 
@@ -510,10 +519,11 @@
                             <label class="form-label">Email Address</label>
                             <input type="email" id="regStudentEmail" class="form-control" placeholder="aarav@mit.edu" required>
                         </div>
+                        <p class="form-hint">We will email you a verification code. Your account is created after you verify this address.</p>
                         <div class="form-group">
                             <label class="form-label">Password</label>
                             <div class="password-field">
-                                <input type="password" id="regStudentPassword" class="form-control" placeholder="Minimum 6 chars" required minlength="4">
+                                <input type="password" id="regStudentPassword" class="form-control" placeholder="Minimum 6 chars" required minlength="6">
                                 <button type="button" class="password-toggle" onclick="togglePasswordVisibility('regStudentPassword', this)" aria-label="Show password" title="Show password"><i class="fa-regular fa-eye"></i></button>
                             </div>
                         </div>
@@ -537,7 +547,7 @@
                         <textarea id="regStudentBio" class="form-control" rows="2" placeholder="Tell sponsors about your engineering passion..."></textarea>
                     </div>
                     <button type="submit" class="btn btn-primary btn-lg" style="width: 100%;">
-                        <i class="fa-solid fa-user-plus"></i> Create Student Account
+                        <i class="fa-solid fa-envelope-circle-check"></i> Verify Email & Create Account
                     </button>
                     <div class="auth-switch">Already have an account?
                         <button type="button" onclick="switchAuthTab('login')">Log In</button>
@@ -558,11 +568,12 @@
                         <div class="form-group">
                             <label class="form-label">Password</label>
                             <div class="password-field">
-                                <input type="password" id="regSponsorPassword" class="form-control" placeholder="Minimum 6 chars" required minlength="4">
+                                <input type="password" id="regSponsorPassword" class="form-control" placeholder="Minimum 6 chars" required minlength="6">
                                 <button type="button" class="password-toggle" onclick="togglePasswordVisibility('regSponsorPassword', this)" aria-label="Show password" title="Show password"><i class="fa-regular fa-eye"></i></button>
                             </div>
                         </div>
                     </div>
+                    <p class="form-hint">We will email you a verification code. Your account is created after you verify this address.</p>
                     <div class="form-row">
                         <div class="form-group">
                             <label class="form-label">Sponsor Type</label>
@@ -582,10 +593,25 @@
                         <textarea id="regSponsorBio" class="form-control" rows="2" placeholder="Supporting student hardware & AI prototypes..."></textarea>
                     </div>
                     <button type="submit" class="btn btn-primary btn-lg" style="width: 100%;">
-                        <i class="fa-solid fa-briefcase"></i> Create Sponsor Account
+                        <i class="fa-solid fa-envelope-circle-check"></i> Verify Email & Create Account
                     </button>
                     <div class="auth-switch">Already have an account?
                         <button type="button" onclick="switchAuthTab('login')">Log In</button>
+                    </div>
+                </form>
+
+                <form id="emailVerificationForm" style="display: none;" onsubmit="handleEmailVerificationSubmit(event)">
+                    <p id="emailVerificationMessage" class="form-hint" role="status" aria-live="polite" style="margin-bottom: 18px;"></p>
+                    <div class="form-group">
+                        <label class="form-label" for="emailVerificationCode">6-digit verification code</label>
+                        <input type="text" id="emailVerificationCode" class="form-control" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" placeholder="Enter code" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-lg" style="width: 100%;">
+                        <i class="fa-solid fa-envelope-circle-check"></i> Verify Email
+                    </button>
+                    <div class="auth-switch">
+                        <button type="button" onclick="handleResendVerification()">Resend code</button>
+                        <button type="button" onclick="returnToRegistration()">Back to sign up</button>
                     </div>
                 </form>
             </div>
@@ -762,28 +788,83 @@
                         <textarea id="sponsorFormMessage" class="form-control" rows="2" placeholder="Fantastic engineering initiative! Excited to see your next milestone demo."></textarea>
                     </div>
 
-                    <!-- Simulated Payment Method selection -->
+                    <!-- Demo payment method selection -->
                     <div class="form-group">
-                        <label class="form-label">Simulated Payment Mode</label>
-                        <div style="display: flex; gap: 10px;">
-                            <label style="flex: 1; padding: 10px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); font-size: 0.85rem; display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                                <input type="radio" name="payMode" checked onchange="handlePaymentModeSelection()"> <i class="fa-solid fa-credit-card"></i> Card (Test)
+                        <label class="form-label">Payment Method</label>
+                        <div class="payment-method-options">
+                            <label class="payment-method-option">
+                                <input type="radio" name="payMode" value="card" onchange="handlePaymentModeSelection()"> <i class="fa-solid fa-credit-card"></i> Card
                             </label>
-                            <label style="flex: 1; padding: 10px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); font-size: 0.85rem; display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                                <input type="radio" name="payMode" onchange="handlePaymentModeSelection()"> <i class="fa-solid fa-qrcode"></i> UPI / QR
+                            <label class="payment-method-option">
+                                <input type="radio" name="payMode" value="upi" onchange="handlePaymentModeSelection()"> <i class="fa-solid fa-qrcode"></i> UPI / QR
                             </label>
-                            <label style="flex: 1; padding: 10px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); font-size: 0.85rem; display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                                <input type="radio" name="payMode" onchange="handlePaymentModeSelection()"> <i class="fa-brands fa-paypal"></i> PayPal
+                            <label class="payment-method-option">
+                                <input type="radio" name="payMode" value="paypal" onchange="handlePaymentModeSelection()"> <i class="fa-brands fa-paypal"></i> PayPal
                             </label>
                         </div>
+                    </div>
+
+                    <div class="payment-instructions" id="paymentInstructions" hidden>
+                        <section class="payment-method-panel" id="upiPaymentPanel" hidden>
+                            <h4>Scan the demo QR code</h4>
+                            <div class="payment-qr-image" id="paymentQrCode" role="img" aria-label="Demo sponsorship QR code"></div>
+                            <p class="payment-total">Sponsorship amount: <strong id="upiPaymentAmount"></strong></p>
+                            <p class="payment-demo-note">Demo only. Scanning this QR code will not transfer money.</p>
+                            <button type="button" class="btn btn-primary" onclick="markDemoPaymentComplete('upi')">Mark UPI Demo Complete</button>
+                        </section>
+                        <section class="payment-method-panel" id="paypalPaymentPanel" hidden>
+                            <h4>PayPal demo checkout</h4>
+                            <p class="payment-total">Sponsorship amount: <strong id="paypalPaymentAmount"></strong></p>
+                            <p class="payment-demo-note">No PayPal account will be charged in this demo.</p>
+                            <button type="button" class="btn btn-primary" onclick="markDemoPaymentComplete('paypal')">Continue with PayPal Demo</button>
+                        </section>
                     </div>
                 </div>
 
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" onclick="closeModal('sponsorModal')">Cancel</button>
                     <button type="submit" class="btn btn-primary btn-lg">
-                        <i class="fa-solid fa-circle-check"></i> Complete Sponsorship
+                        <i class="fa-solid fa-arrow-right"></i> Continue to Payment
                     </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-backdrop" id="cardPaymentModal">
+        <div class="modal-box card-payment-box">
+            <div class="modal-header">
+                <div class="modal-title"><i class="fa-solid fa-credit-card"></i> Card Demo Checkout</div>
+                <button type="button" class="modal-close" onclick="closeModal('cardPaymentModal')" aria-label="Close card checkout">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <form id="cardPaymentForm" onsubmit="handleCardPaymentSubmit(event)">
+                <div class="modal-body">
+                    <p class="payment-total">Sponsorship amount: <strong id="cardPaymentAmount"></strong></p>
+                    <p class="payment-demo-note">Please use sample card details only. This demo does not process or charge real card information.</p>
+                    <div class="form-group">
+                        <label class="form-label" for="demoCardName">Name on card</label>
+                        <input class="form-control" id="demoCardName" name="cardName" autocomplete="cc-name" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="demoCardNumber">Card number</label>
+                        <input class="form-control" id="demoCardNumber" name="cardNumber" inputmode="numeric" maxlength="19" pattern="[0-9]{12,19}" placeholder="12-19 digits" autocomplete="off" required>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label" for="demoCardExpiry">Expiry (MM/YY)</label>
+                            <input class="form-control" id="demoCardExpiry" name="cardExpiry" inputmode="numeric" pattern="(0[1-9]|1[0-2])/[0-9]{2}" placeholder="MM/YY" autocomplete="off" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="demoCardCvv">CVV</label>
+                            <input class="form-control" id="demoCardCvv" name="cardCvv" inputmode="numeric" maxlength="4" pattern="[0-9]{3,4}" placeholder="3-4 digits" autocomplete="off" required>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('cardPaymentModal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Complete Demo Payment</button>
                 </div>
             </form>
         </div>
@@ -888,6 +969,7 @@
     <!-- ==========================================================
          JAVASCRIPT APPLICATION LOGIC
          ========================================================== -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="script.js"></script>
 </body>
 </html>
