@@ -20,6 +20,11 @@
         let allStudents = [];
         let allSponsors = [];
         let currentUser = null; // { id, name, email, role, ... }
+        let pendingVerificationEmail = '';
+        let pendingVerificationRole = 'student';
+        let selectedPaymentMode = '';
+        let paymentConsentGranted = false;
+        let pendingSponsorship = null;
         let currentCategory = 'ALL';
         let currentSearchQuery = '';
         let currentStatusFilter = 'ALL';
@@ -89,6 +94,8 @@
                 dateInput.value = new Date().toISOString().split('T')[0];
             }
 
+            document.getElementById('customSponsorAmount').addEventListener('input', handleSponsorAmountChange);
+
             // Close modals on ESC key
             window.addEventListener('keydown', (e) => {
                 if (e.key === 'Escape') {
@@ -122,9 +129,9 @@
                 console.warn('Backend fetch failed or offline; showing the current local project list:', err);
                 document.getElementById('backendStatusIndicator').innerHTML = `
                     <span style="width: 10px; height: 10px; border-radius: 50%; background: var(--warning); display: inline-block;"></span>
-                    <span>Standalone / Offline Mode (No Seed Projects)</span>
+                    <span>Offline Mode (Sample Projects)</span>
                 `;
-                allProjects = [];
+                seedLocalFallbackData();
             } finally {
                 hideSpinner();
                 renderProjects();
@@ -198,7 +205,7 @@
                     {
                         id: 'PRJ-002',
                         title: 'SkyRescue: Autonomous Disaster Supply Drone',
-                        category: 'IoT & Robotics',
+                        category: 'Robotics & Automation',
                         description: 'A multi-rotor autonomous UAV engineered for rapid emergency payload delivery in disaster zones where roads are blocked.',
                         fundingGoal: 2000,
                         currentFunding: 2000,
@@ -226,7 +233,7 @@
                     {
                         id: 'PRJ-003',
                         title: 'SunShare: Peer-to-Peer Solar Microgrid Node',
-                        category: 'GreenTech & Energy',
+                        category: 'Renewable Energy',
                         description: 'An open-source IoT hardware controller that lets rural homes with rooftop solar panels share excess clean energy with automated micro-billing.',
                         fundingGoal: 1500,
                         currentFunding: 920,
@@ -253,7 +260,7 @@
                     {
                         id: 'PRJ-004',
                         title: 'MediVault: Zero-Knowledge Health Record Pass',
-                        category: 'HealthTech & Blockchain',
+                        category: 'HealthTech',
                         description: 'Decentralized electronic medical records system using Zero-Knowledge proofs. Patients maintain absolute ownership of diagnostic records.',
                         fundingGoal: 1800,
                         currentFunding: 650,
@@ -583,6 +590,13 @@
 
             document.getElementById('sponsorTargetProjectId').value = project.id;
             document.getElementById('sponsorTargetProjectTitle').innerText = project.title;
+            selectedPaymentMode = '';
+            paymentConsentGranted = false;
+            pendingSponsorship = null;
+            document.querySelectorAll('input[name="payMode"]').forEach(input => input.checked = false);
+            document.getElementById('paymentInstructions').hidden = true;
+            document.getElementById('upiPaymentPanel').hidden = true;
+            document.getElementById('paypalPaymentPanel').hidden = true;
             const remainingInr = Math.max(0, (project.fundingGoal - project.currentFunding) * USD_TO_INR);
             const amountInput = document.getElementById('customSponsorAmount');
             amountInput.max = Math.round(remainingInr);
@@ -618,19 +632,91 @@
                 customInput.value = '';
                 customInput.focus();
             }
+            handleSponsorAmountChange();
         }
 
         function handlePaymentModeSelection() {
-            const form = document.getElementById('sponsorForm');
-            if (!form.checkValidity()) {
-                form.reportValidity();
+            selectedPaymentMode = document.querySelector('input[name="payMode"]:checked')?.value || '';
+            paymentConsentGranted = false;
+            pendingSponsorship = null;
+            document.getElementById('paymentInstructions').hidden = true;
+            document.getElementById('upiPaymentPanel').hidden = true;
+            document.getElementById('paypalPaymentPanel').hidden = true;
+        }
+
+        function updatePaymentDetails() {
+            const amountInr = parseFloat(document.getElementById('customSponsorAmount').value);
+            const amountText = amountInr > 0 ? formatCurrency(amountInr / USD_TO_INR) : 'Enter an amount first';
+            const cardAmount = document.getElementById('cardPaymentAmount');
+            const upiAmount = document.getElementById('upiPaymentAmount');
+            const paypalAmount = document.getElementById('paypalPaymentAmount');
+            if (cardAmount) cardAmount.innerText = amountText;
+            if (upiAmount) upiAmount.innerText = amountText;
+            if (paypalAmount) paypalAmount.innerText = amountText;
+
+            const qrCode = document.getElementById('paymentQrCode');
+            if (qrCode) qrCode.replaceChildren();
+            if (qrCode && amountInr > 0 && typeof QRCode !== 'undefined') {
+                const projectTitle = document.getElementById('sponsorTargetProjectTitle').innerText;
+                const qrData = `StudentFund demo payment | ${projectTitle} | INR ${Math.round(amountInr)}`;
+                new QRCode(qrCode, {
+                    text: qrData,
+                    width: 168,
+                    height: 168,
+                    colorDark: '#000000',
+                    colorLight: '#ffffff',
+                    correctLevel: QRCode.CorrectLevel.M
+                });
+            }
+        }
+
+        function handleSponsorAmountChange() {
+            paymentConsentGranted = false;
+            pendingSponsorship = null;
+            document.getElementById('paymentInstructions').hidden = true;
+            document.getElementById('upiPaymentPanel').hidden = true;
+            document.getElementById('paypalPaymentPanel').hidden = true;
+            updatePaymentDetails();
+        }
+
+        function openSelectedPaymentMethod() {
+            const instructions = document.getElementById('paymentInstructions');
+            instructions.hidden = selectedPaymentMode === 'card';
+            document.getElementById('upiPaymentPanel').hidden = selectedPaymentMode !== 'upi';
+            document.getElementById('paypalPaymentPanel').hidden = selectedPaymentMode !== 'paypal';
+            updatePaymentDetails();
+
+            if (selectedPaymentMode === 'card') {
+                document.getElementById('cardPaymentForm').reset();
+                openModal('cardPaymentModal');
+            }
+        }
+
+        async function markDemoPaymentComplete(mode) {
+            if (mode !== selectedPaymentMode || !paymentConsentGranted || !pendingSponsorship) {
+                showToast('Review and approve the sponsorship before continuing to payment.', 'warning');
                 return;
             }
-            handleSponsorSubmit({ preventDefault: () => {} });
+
+            const { payload, target } = pendingSponsorship;
+            paymentConsentGranted = false;
+            pendingSponsorship = null;
+            if (mode === 'card') closeModal('cardPaymentModal');
+            await processSponsorship(payload, target);
+        }
+
+        function handleCardPaymentSubmit(e) {
+            e.preventDefault();
+            markDemoPaymentComplete('card');
         }
 
         async function handleSponsorSubmit(e) {
             e.preventDefault();
+            if (!selectedPaymentMode) {
+                showToast('Choose a payment method before continuing.', 'warning');
+                return;
+            }
+
             const projectId = document.getElementById('sponsorTargetProjectId').value;
             const amountInr = parseFloat(document.getElementById('customSponsorAmount').value);
             const sponsorName = document.getElementById('sponsorFormName').value.trim();
@@ -664,14 +750,24 @@
                 message: message || 'Proud backer of student engineering!'
             };
 
-            document.getElementById('confirmTitle').innerHTML = '<i class="fa-solid fa-hand-holding-dollar"></i> Confirm Sponsorship';
-            document.getElementById('confirmTitle').style.color = 'var(--primary)';
-            document.getElementById('confirmMessage').innerText = `Do you really want to sponsor "${target.title}" with ${formatCurrency(amountVal)}? Please review your choice before continuing.`;
-            const confirmButton = document.getElementById('confirmAcceptBtn');
-            confirmButton.innerText = 'Yes, Sponsor Project';
-            confirmButton.className = 'btn btn-primary';
-            confirmButton.onclick = () => processSponsorship(payload, target);
-            openModal('confirmModal');
+            pendingSponsorship = { payload, target };
+            if (selectedPaymentMode === 'upi') {
+                document.getElementById('confirmTitle').innerHTML = '<i class="fa-solid fa-qrcode"></i> Open UPI QR Code';
+                document.getElementById('confirmTitle').style.color = 'var(--primary)';
+                document.getElementById('confirmMessage').innerText = `Open the demo payment QR code for ${formatCurrency(amountVal)} to sponsor "${target.title}"?`;
+                const confirmButton = document.getElementById('confirmAcceptBtn');
+                confirmButton.innerText = 'Open QR Code';
+                confirmButton.className = 'btn btn-primary';
+                confirmButton.onclick = () => {
+                    paymentConsentGranted = true;
+                    closeModal('confirmModal');
+                    openSelectedPaymentMethod();
+                };
+                openModal('confirmModal');
+            } else {
+                paymentConsentGranted = true;
+                openSelectedPaymentMethod();
+            }
         }
 
         async function processSponsorship(payload, target) {
@@ -692,7 +788,7 @@
                     if (idx !== -1 && result.project) {
                         allProjects[idx] = result.project;
                     }
-                    showToast(`Sponsorship of ${formatCurrency(payload.amount)} was successfully processed.`, 'success');
+                    showToast(`Thank you, ${payload.sponsorName}! Your sponsorship of ${formatCurrency(payload.amount)} has been added.`, 'success');
                 } else {
                     const result = await res.json().catch(() => ({}));
                     if (res.status === 409) {
@@ -723,10 +819,11 @@
                         date: new Date().toISOString().split('T')[0]
                     });
                 }
-                showToast(`Thank you! Simulated sponsorship of ${formatCurrency(payload.amount)} registered.`, 'success');
+                showToast(`Thank you, ${payload.sponsorName}! Your demo sponsorship of ${formatCurrency(payload.amount)} has been added.`, 'success');
             } finally {
                 hideSpinner();
                 closeModal('sponsorModal');
+                closeModal('cardPaymentModal');
                 renderProjects();
                 calculateLocalStats();
             }
@@ -998,6 +1095,15 @@
         // AUTHENTICATION & SESSIONS
         // ==========================================
         function openAuthModal(mode = 'login') {
+            const savedEmail = sessionStorage.getItem('pendingVerificationEmail');
+            if (savedEmail) {
+                showEmailVerificationForm(
+                    savedEmail,
+                    'Enter the 6-digit code sent to your email address.',
+                    sessionStorage.getItem('pendingVerificationRole') || 'student'
+                );
+                return;
+            }
             switchAuthTab(mode);
             openModal('authModal');
         }
@@ -1006,6 +1112,7 @@
             const loginForm = document.getElementById('loginForm');
             const studentForm = document.getElementById('studentRegisterForm');
             const sponsorForm = document.getElementById('sponsorRegisterForm');
+            const verificationForm = document.getElementById('emailVerificationForm');
 
             const tabLoginBtn = document.getElementById('tabLoginBtn');
             const tabStudentBtn = document.getElementById('tabStudentBtn');
@@ -1022,6 +1129,7 @@
             loginForm.style.display = 'none';
             studentForm.style.display = 'none';
             sponsorForm.style.display = 'none';
+            verificationForm.style.display = 'none';
 
             if (tab === 'student') {
                 studentForm.style.display = 'block';
@@ -1046,6 +1154,15 @@
                     updateNavbarAuthUI();
                 } catch (e) {
                     localStorage.removeItem('currentUser');
+                }
+            } else {
+                const pendingEmail = sessionStorage.getItem('pendingVerificationEmail');
+                if (pendingEmail) {
+                    showEmailVerificationForm(
+                        pendingEmail,
+                        'Enter the 6-digit code sent to your email address.',
+                        sessionStorage.getItem('pendingVerificationRole') || 'student'
+                    );
                 }
             }
         }
@@ -1111,37 +1228,16 @@
             const skills = document.getElementById('regStudentSkills').value.trim();
             const bio = document.getElementById('regStudentBio').value.trim();
 
-            showSpinner('Registering student account...');
+            showSpinner('Sending email verification code...');
 
             const payload = { role: 'student', name, email, password, university, department, skills, bio };
 
             try {
-                const res = await fetch(`${API_BASE}/register`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-
-                if (res.ok) {
-                    const result = await res.json();
-                    currentUser = result.user;
-                    currentUser.role = 'student';
-                    saveSession(currentUser);
-                    showToast('Student account created successfully!', 'success');
-                    closeModal('authModal');
-                } else {
-                    const err = await res.json();
-                    throw new Error(err.message || 'Registration failed');
-                }
+                await requestEmailVerification(payload);
             } catch (err) {
-                currentUser = { id: 'STU-' + Date.now(), name, email, university, department, skills, role: 'student' };
-                allStudents.push(currentUser);
-                saveSession(currentUser);
-                showToast('Student registered successfully (Local Cache)', 'success');
-                closeModal('authModal');
+                showToast(err.message || 'Could not start email verification.', 'error');
             } finally {
                 hideSpinner();
-                calculateLocalStats();
             }
         }
 
@@ -1154,38 +1250,107 @@
             const company = document.getElementById('regSponsorCompany').value.trim();
             const bio = document.getElementById('regSponsorBio').value.trim();
 
-            showSpinner('Registering sponsor account...');
+            showSpinner('Sending email verification code...');
 
             const payload = { role: 'sponsor', name, email, password, type, company, bio };
 
             try {
-                const res = await fetch(`${API_BASE}/register`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-
-                if (res.ok) {
-                    const result = await res.json();
-                    currentUser = result.user;
-                    currentUser.role = 'sponsor';
-                    saveSession(currentUser);
-                    showToast('Sponsor account created successfully!', 'success');
-                    closeModal('authModal');
-                } else {
-                    const err = await res.json();
-                    throw new Error(err.message || 'Registration failed');
-                }
+                await requestEmailVerification(payload);
             } catch (err) {
-                currentUser = { id: 'SPO-' + Date.now(), name, email, type, company, role: 'sponsor' };
-                allSponsors.push(currentUser);
-                saveSession(currentUser);
-                showToast('Sponsor registered successfully (Local Cache)', 'success');
-                closeModal('authModal');
+                showToast(err.message || 'Could not start email verification.', 'error');
             } finally {
                 hideSpinner();
-                calculateLocalStats();
             }
+        }
+
+        async function requestEmailVerification(payload) {
+            const res = await fetch(`${API_BASE}/register`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const result = await res.json().catch(() => ({}));
+            if (!res.ok && !(res.status === 409 && result.verificationRequired)) {
+                throw new Error(result.message || 'Registration failed.');
+            }
+            showEmailVerificationForm(
+                result.email || payload.email,
+                result.message || 'A verification code was sent to your email address.',
+                payload.role
+            );
+        }
+
+        function showEmailVerificationForm(email, message, role) {
+            pendingVerificationEmail = email;
+            pendingVerificationRole = role;
+            sessionStorage.setItem('pendingVerificationEmail', email);
+            sessionStorage.setItem('pendingVerificationRole', role);
+
+            document.getElementById('loginForm').style.display = 'none';
+            document.getElementById('studentRegisterForm').style.display = 'none';
+            document.getElementById('sponsorRegisterForm').style.display = 'none';
+            document.querySelector('.auth-tabs').style.display = 'none';
+            document.getElementById('quickDemoLogin').style.display = 'none';
+            document.getElementById('authModalTitle').innerHTML = '<i class="fa-solid fa-envelope-circle-check"></i> Verify Your Email';
+            document.getElementById('emailVerificationMessage').innerText = `${message} Email: ${email}`;
+            document.getElementById('emailVerificationCode').value = '';
+            document.getElementById('emailVerificationForm').style.display = 'block';
+            openModal('authModal');
+        }
+
+        async function handleEmailVerificationSubmit(e) {
+            e.preventDefault();
+            const code = document.getElementById('emailVerificationCode').value.trim();
+            showSpinner('Verifying email address...');
+            try {
+                const res = await fetch(`${API_BASE}/verifyEmail`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: pendingVerificationEmail, code })
+                });
+                const result = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(result.message || 'Email verification failed.');
+
+                sessionStorage.removeItem('pendingVerificationEmail');
+                sessionStorage.removeItem('pendingVerificationRole');
+                pendingVerificationEmail = '';
+                currentUser = result.user;
+                currentUser.role = result.role;
+                saveSession(currentUser);
+                closeModal('authModal');
+                showToast(result.message || 'Email verified and account created.', 'success');
+            } catch (err) {
+                showToast(err.message || 'Email verification failed.', 'error');
+            } finally {
+                hideSpinner();
+            }
+        }
+
+        async function handleResendVerification() {
+            if (!pendingVerificationEmail) return;
+            showSpinner('Resending verification code...');
+            try {
+                const res = await fetch(`${API_BASE}/resendVerification`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: pendingVerificationEmail })
+                });
+                const result = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(result.message || 'Could not resend the verification code.');
+                showToast(result.message || 'A new verification code was sent.', 'success');
+            } catch (err) {
+                showToast(err.message || 'Could not resend the verification code.', 'error');
+            } finally {
+                hideSpinner();
+            }
+        }
+
+        function returnToRegistration() {
+            const role = pendingVerificationRole;
+            sessionStorage.removeItem('pendingVerificationEmail');
+            sessionStorage.removeItem('pendingVerificationRole');
+            pendingVerificationEmail = '';
+            switchAuthTab(role);
         }
 
         function saveSession(user) {
@@ -1211,7 +1376,7 @@
                     <div class="user-chip" onclick="openDashboard()">
                         <div class="user-avatar">${escapeHtml((currentUser.name || 'U').charAt(0))}</div>
                         <div style="font-size: 0.88rem; font-weight: 600;">
-                            ${escapeHtml(currentUser.name)}
+                            <span class="user-chip-name">${escapeHtml(currentUser.name)}</span>
                             <span style="font-size: 0.72rem; color: var(--primary-light); display: block;">${roleBadge} Dashboard</span>
                         </div>
                     </div>
