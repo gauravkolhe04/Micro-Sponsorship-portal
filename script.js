@@ -1,5 +1,5 @@
         // API Base URL - Default to localhost:8080 if not served by same origin
-        const API_BASE = window.location.port === '8080' ? '' : 'http://localhost:8080';
+        const API_BASE = window.location.port === '8080' ? '' : 'https://micro-sponsorship-portal-1.onrender.com';
         const USD_TO_INR = 83;
 
         function formatCurrency(usdAmount) {
