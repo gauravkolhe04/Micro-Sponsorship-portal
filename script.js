@@ -654,21 +654,23 @@
             if (upiAmount) upiAmount.innerText = amountText;
             if (paypalAmount) paypalAmount.innerText = amountText;
 
-            const qrCode = document.getElementById('paymentQrCode');
-            if (qrCode) qrCode.replaceChildren();
-            if (qrCode && amountInr > 0 && typeof QRCode !== 'undefined') {
-                const projectTitle = document.getElementById('sponsorTargetProjectTitle').innerText;
-                const qrData = `StudentFund demo payment | ${projectTitle} | INR ${Math.round(amountInr)}`;
-                new QRCode(qrCode, {
-                    text: qrData,
-                    width: 168,
-                    height: 168,
-                    colorDark: '#000000',
-                    colorLight: '#ffffff',
-                    correctLevel: QRCode.CorrectLevel.M
-                });
-            }
-        }
+           const qrCode = document.getElementById('paymentQrCode');
+
+if (qrCode) {
+    qrCode.replaceChildren();
+
+    if (amountInr > 0) {
+        const img = document.createElement('img');
+
+        img.src = './my-qr.png';
+        img.alt = 'UPI Payment QR Code';
+        img.style.width = '220px';
+        img.style.height = '220px';
+        img.style.objectFit = 'contain';
+
+        qrCode.appendChild(img);
+    }
+}
 
         function handleSponsorAmountChange() {
             paymentConsentGranted = false;
