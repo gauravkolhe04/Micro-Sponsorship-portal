@@ -1601,3 +1601,11 @@
                 grid-template-columns: 1fr;
             }
         }
+.my-payment-qr {
+    display: block;
+    width: 220px;
+    height: 220px;
+    max-width: 100%;
+    object-fit: contain;
+    margin: 0 auto;
+}
