@@ -807,7 +807,10 @@
                     <div class="payment-instructions" id="paymentInstructions" hidden>
                         <section class="payment-method-panel" id="upiPaymentPanel" hidden>
                             <h4>Scan the QR code</h4>
-                            <div class="payment-qr-image" id="paymentQrCode" role="img" aria-label="Demo sponsorship QR code"></div>
+                            <div class="payment-qr-image" id="paymentQrCode">
+                            <img
+                                 src="my-qr.png"alt="My sponsorship payment QR code" class="my-payment-qr">
+                            </div>
                             <p class="payment-total">Sponsorship amount: <strong id="upiPaymentAmount"></strong></p>
                             <p class="payment-demo-note">Demo only. Scanning this QR code will not transfer money.</p>
                             <button type="button" class="btn btn-primary" onclick="markDemoPaymentComplete('upi')">Mark UPI Demo Complete</button>
