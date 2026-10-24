@@ -57,7 +57,6 @@ public class Main {
             HttpServer server = HttpServer.create(new InetSocketAddress(PORT), 0);
             server.setExecutor(Executors.newCachedThreadPool());
 
-            // Register API Handlers
             server.createContext("/", new StaticFileHandler());
             server.createContext("/projects", new ProjectsHandler());
             server.createContext("/createProject", new CreateProjectHandler());
@@ -90,7 +89,7 @@ public class Main {
     private static void setCORSHeaders(HttpExchange exchange) {
         exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
         exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-        exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept");
+        exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, apikey");
     }
 
     private static void seedData() {
@@ -263,15 +262,19 @@ public class Main {
 
     private static String loadSupabaseData() throws IOException {
         SupabaseConfig config = getSupabaseConfig();
-        HttpRequest request = HttpRequest.newBuilder()
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(config.url + "/rest/v1/portal_state?id=eq.main&select=data"))
                 .timeout(Duration.ofSeconds(20))
-                .header("apikey", config.serviceRoleKey)
-                .header("Authorization", "Bearer " + config.serviceRoleKey)
                 .header("Accept", "application/json")
-                .GET()
-                .build();
-        HttpResponse<String> response = sendSupabaseRequest(request);
+                .header("apikey", config.serviceRoleKey);
+
+        if (config.serviceRoleKey.startsWith("sb_secret_")) {
+            builder.header("X-Supabase-Key", config.serviceRoleKey);
+        } else {
+            builder.header("Authorization", "Bearer " + config.serviceRoleKey);
+        }
+
+        HttpResponse<String> response = sendSupabaseRequest(builder.GET().build());
         if (response.statusCode() != 200) {
             throw supabaseError("read", response);
         }
@@ -288,16 +291,20 @@ public class Main {
     private static void saveSupabaseData(String data) throws IOException {
         SupabaseConfig config = getSupabaseConfig();
         String body = "{\"id\":\"main\",\"data\":\"" + data + "\"}";
-        HttpRequest request = HttpRequest.newBuilder()
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(config.url + "/rest/v1/portal_state?on_conflict=id"))
                 .timeout(Duration.ofSeconds(20))
-                .header("apikey", config.serviceRoleKey)
-                .header("Authorization", "Bearer " + config.serviceRoleKey)
                 .header("Content-Type", "application/json")
                 .header("Prefer", "resolution=merge-duplicates,return=minimal")
-                .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
-                .build();
-        HttpResponse<String> response = sendSupabaseRequest(request);
+                .header("apikey", config.serviceRoleKey);
+
+        if (config.serviceRoleKey.startsWith("sb_secret_")) {
+            builder.header("X-Supabase-Key", config.serviceRoleKey);
+        } else {
+            builder.header("Authorization", "Bearer " + config.serviceRoleKey);
+        }
+
+        HttpResponse<String> response = sendSupabaseRequest(builder.POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8)).build());
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
             throw supabaseError("save", response);
         }
@@ -309,16 +316,20 @@ public class Main {
             "{\"name\":\"%s\",\"email\":\"%s\",\"subject\":\"%s\",\"message\":\"%s\"}",
             escapeJson(name), escapeJson(email), escapeJson(subject), escapeJson(message)
         );
-        HttpRequest request = HttpRequest.newBuilder()
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(config.url + "/rest/v1/contact_messages"))
                 .timeout(Duration.ofSeconds(20))
-                .header("apikey", config.serviceRoleKey)
-                .header("Authorization", "Bearer " + config.serviceRoleKey)
                 .header("Content-Type", "application/json")
                 .header("Prefer", "return=minimal")
-                .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
-                .build();
-        HttpResponse<String> response = sendSupabaseRequest(request);
+                .header("apikey", config.serviceRoleKey);
+
+        if (config.serviceRoleKey.startsWith("sb_secret_")) {
+            builder.header("X-Supabase-Key", config.serviceRoleKey);
+        } else {
+            builder.header("Authorization", "Bearer " + config.serviceRoleKey);
+        }
+
+        HttpResponse<String> response = sendSupabaseRequest(builder.POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8)).build());
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
             throw supabaseError("save contact message", response);
         }
@@ -373,10 +384,7 @@ public class Main {
         }
     }
 
-    // ==========================================
-    // HTTP Handlers
-    // ==========================================
-
+    // Handlers
     static class StaticFileHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -843,7 +851,6 @@ public class Main {
                 }
 
                 String resendApiKey = System.getenv("RESEND_API_KEY");
-                // If Resend API is configured, use OTP verification
                 if (resendApiKey != null && !resendApiKey.isBlank()) {
                     String verificationCode = createVerificationCode();
                     PendingRegistration pending = new PendingRegistration(data, verificationCode);
@@ -857,7 +864,6 @@ public class Main {
                     }
                 }
 
-                // Default auto-registration if email provider is not setup
                 String accountResponse = createRegisteredAccount(data);
                 sendResponse(exchange, 200, accountResponse);
             } else {
