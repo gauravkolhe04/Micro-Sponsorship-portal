@@ -3,7 +3,6 @@
 > Connecting small sponsors with individuals, events, and community initiatives to provide targeted financial support for specific needs and activities.
 
 [![Live Demo](https://img.shields.io/badge/Live-Demo-brightgreen?style=for-the-badge)](https://microsponsorshipportal.vercel.app)
-[![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
 [![Java](https://img.shields.io/badge/Backend-Java-orange?style=for-the-badge)](https://www.java.com)
 [![JavaScript](https://img.shields.io/badge/Frontend-JavaScript-yellow?style=for-the-badge)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
 
